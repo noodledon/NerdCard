@@ -1,0 +1,211 @@
+NERDICARD
+A Game of Mathematical Expression
+This document is a WIP. Disregard most of what is on here as we are still working on the
+finalized Game Logic.
+
+Core Concept
+NERDICARD is a strategic card game where players construct and manipulate complex
+mathematical expressions to achieve the highest value. Players utilize Function,
+Variable, and Number cards to build their expressions, engaging in a battle of
+mathematical prowess.
+
+Gameplay
+
+Setup:
+
+Card Types:
+      ○ Function Cards: Introduce mathematical functions or concepts (e.g.,
+           logarithmic, trigonometric, exponential, polynomial, roots,
+           polynomial root, power).
+      ○ Variable Cards: Represent variables (x, y, z, etc.) that can be
+           assigned values.
+      ○ Number Cards: Provide numerical values for calculations within
+           expressions.
+           ■ Eg: Euler's number, Pi, Zero, Infinity, imaginary unit, golden
+           ratio
+Expression Building:
+      ○ Players construct expressions by combining Function, Variable, and
+           Number cards on their playing area.
+      ○ The arrangement of cards determines the mathematical operation
+           performed.
+      ○ Players can create complex expressions by chaining multiple cards
+           together.
+Evaluation:
+
+○ A player can choose to evaluate their expression at any point
+during their turn.
+○ To evaluate, the player assigns numerical values to all variables
+within the expression.
+○ The resulting numerical value determines the expression's strength.
+Victory Condition:
+○ The game ends when a predetermined maximum expression value
+is reached.
+○ The player with the highest evaluated expression at the end of the
+game wins.
+
+Additional Rules
+○ Card Limitations: There might be limits on the number of cards a
+player can hold or play in a turn.
+○ Expression Complexity: Rules can be implemented to prevent
+excessively complex expressions.
+○ Special Cards: Additional card types like Spell, Trap, or Artifact
+cards can be introduced to add strategic elements.
+○ Scoring System: Instead of a maximum value, a scoring system
+based on expression complexity or accuracy could be implemented.
+
+Example Gameplay
+
+Player A starts by playing a "Polynomial" Function card. They follow this with a
+"Variable" card (x) and a "Number" card (2), creating the expression x^2 + 2.
+Player B responds by playing a "Trigonometric" Function card, followed by a
+"Variable" card (x) and a "Number" card (pi/2), creating the expression
+sin(pi/x/2). The game continues with players alternating turns, building upon
+their expressions and attempting to outscore their opponent.
+
+Further explained
+Natural Numbers,
+which are any numbers that are whole and that are not negative (including 0 as
+a natural number is often debated)
+Irrational Numbers,
+maybe players can find uses in a number 'slightly over 3' or maybe use them to
+counter some enemy attacks and operations, for our case, irrational numbers
+may be thought as, numbers that are not an element of the set of Natural
+numbers.
+Matrices
+Vectors and Matrices can still be used in normal math, if you didnt know. you
+can do whetever you like to them, it just takes a few odd algorithms to figure
+out, like you can have e^matrix, and still get something that makes sense. the
+enemy may reduce your matrix by using RREF, then trace or determinant
+operation. there is plenty of strategy for countering a large matrix in the making
+Complex
+Complex numbers may still be used to keep score, using a simple pythagorean
+theorem on 'z' can give a real number, the end of the game will do this anyways
+to check scores
+Theorems
+the Fundamental theorem of algebra can be used on a player or enemy in any
+desperate attempt of sabotage or saving ones self, as is, if you somehow build
+an equation large enough or the enemy, you may use the FTA to choose a root
+from your function, and sacrifice your equation for that number, this can also be
+applied to the enemy, so you may be able to screw with them by giving them a
+negative root. Prime factorization will split your number into a set of primes, as
+you could get the set A = {2,7,647}, but there is hope to escape this and regain
+your number, by using the product in the correct way, you may be able to
+remultiply your natural number. Cardinality will be useful when using it on a set
+that has been operated on by the power set, giving you 2^n, where n is the
+
+number of items in your original set A, the cardinality of P, |P(n)| may be
+extremely large, or just 2. these are just some logical examples.
+                                                                          [
+                                                                   12:23 AM
+                                                                          ]
+ You may also turn any number into a natural number using ceil() or floor()
+
+
+
+
+
+References
+Original reel
+https://www.instagram.com/reel/C-YAwlgpZ6w/?igsh=ZHg3aHdvazl0OWV1
+
+Turn:
+1. Player 1: starts with null set ⊘
+     Summons euler's number: e
+2. Player 2: starts with 9002
+     Activates natural log: ln
+     Player 1's number becomes 1
+     This actives trap card probability: P
+     This activates sample space in hand: Ω
+     (somehow) they activate linear search to enable searching any card in their deck
+3. Player 1 (when did this turn actually started?)
+     Then Player 1 activated Fundamental Theorem of Arithmetic: Player 2 number
+     gets decomposed in prime factors 2x7x643
+     Player 1 activates well Well-Ordering Principle to get least element of Player 2
+     factors
+     a. Player 2: number now is 2
+4. Player 2:
+     a. Player 2 activates Complex Plain (Domain expansion)
+         i.   Player 1 number becomes: 1+0i
+              Player 2 number becomes: 2+0i
+     b. Player 2 activated 90 deg rotation
+         i.   Player 1 number becomes: i
+     c. Player 2 activated real component Re(z)
+         i.   Player 1 number becomes: 0
+
+5. Player 1: Flips a factorial: !
+a. Supposedly this would turn Player 1's number into 1
+6. [video ends]
+
+Some comments on this:
+● There are "Domain Expansion cards" that affects both players and sets their
+numbers in different spacer
+○ Polynomials are other spaces that can be used. The general concept could
+be equated within the framework of group theory.
+● It's not entirely clear when the 2nd turn of player 1 started.
+● Is the factorial a trap card?
+○ What are the triggering conditions?
+● What is the relation between sample space and linear search in gameplay
+mechanics?
+○ Is sample space a requirement for linear search?
+Is it applied on the deck or just instantiated?
+● Some parts of set and number theory seem intuitive enough to use basis for a
+first iteration of the gameplay
+
+Similar problems
+● Efficiently comparing numbers with large exponents
+○ https://projecteuler.net/problem=99
+● Relevant for complex expressions:
+https://en.wikipedia.org/wiki/Squeeze_theorem
+
+Random ideas
+● How can complex equations yield meaningful numbers. Mixing and mashing
+irrational numbers and integers may not be as interesting as having a set of
+transformations what make intuitive sense.
+○ Maybe the available transformations could be selected and tunned in a
+way that makes the game more fun to play
+○ A workaround could be imposing limitations of the available numbers on
+which operations can be applied.
+This would require cards that explicitly change the current domain of the
+number or expression.
+● When in polynomial space root finding could bring the player back to the
+complex plane.
+● Division by zero trap card
+● Limits x->0 / x->inf
+○ L'Hôpital's rule
+
+● What happens with ln(0) => -inf ?
+● https://en.wikipedia.org/wiki/Euler%27s_identity
+● Negative of number. Either x-1 or a 180 deg complex plane rotation could
+produce this effect
+● Domain expansions
+○ Logarithmic scale
+○ Laplace/fourier transform
+● Special cases
+○ What happens with functions undefined on certain point?
+○ Lets say that there is a funcion that converges to zero but doesnt actually
+reach that value
+● Operations
+○ Absolute value
+○ Trace of matrix
+○ Inner and outer products
+○ Reciprocal 1/x => interaction with division by 0
+● What about negative numbers?
+● Pythagorean Identity
+● Taylor series
+● Derivatives
+● Integrals
+● How expression trees work?
+○ https://docs.sympy.org/latest/tutorials/intro-tutorial/manipulation.html
+Something like this:
+
+
+
+
+
+
+
+
+
+○ How are expressions applied to the tree?
+Can they be applied anywhere? On top of any node?
+○ Note that

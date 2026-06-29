@@ -1,0 +1,185 @@
+NERDICARD Game Logic
+NerdiClash - Official Gamemode
+
+Game Flow
+
+1. Initialization:
+○ Create players, shuffle each player's deck, and assign starting hands.
+         ■ Starting hand is the first ___ cards of the shuffled deck.
+○ Set up the game board if applicable.
+○ Shuffle the Function Component Card (FCC) deck. Only one deck is
+needed per game, so either player's deck can be used.
+○ Each player draws 10 cards in alternating order from the FCC deck.
+○ Each player builds their initial function.
+○ Each player sets up ___ prize cards stacked on top of one another. They
+are randomly selected from the deck, but they also include 2 [variable
+value prize cards]. This mini-deck is then shuffled. Pulling cards from the
+prize deck is the same as pulling from the player's main deck.
+         ■ Different cards that are used in the game or major events that
+             occur will dictate when someone can pull a prize card.
+2. Turn-Based Gameplay:
+○ Players alternate turns.
+○ On a player's turn:
+         ■ Draw a card from the deck.
+         ■ Play a card from the hand to the playing area.
+         ■ Perform actions based on the played card (e.g., modify expression
+             with FCCs, activate abilities/theorems).
+                  ● Only 1 offensive move is allowed per turn.
+                  ● Put any amount of defensive cards into play and use any
+                  artifacts to activate effects on the battlefield.
+                  ● One trap card slot exists on either player's side. If a player
+                  has a trap card in their hand, they can set it in the trap slot if
+                  the trap slot is empty. When a trap is set, an offensive card
+                  is not allowed to be played in the same turn.
+                  ● If a trap is activated, the player that set it down must call it
+                  out.
+
+■ Optionally, evaluate the expression into evaluation mode. You need
+                a [variable value prize card] to do this, and it sets the evaluation to
+                the value of your function if the variable were to be the value that
+                the [variable value prize card] states.
+                ● [variable value prize cards] are pulled due to {some event?}
+■ When an offensive card that is in play has applied its effect or is
+                canceled, it goes to the 3rd Dimension(Graveyard). Any defensive
+                cards or artifacts that have been disabled in that turn also go to
+                the graveyard.
+                ● Using special cards, cards in the 3rd Dimension(Graveyard)
+                can be pulled.
+3. Card Actions:
+○ Function Component Card: Activates a certain type of function which you
+can use to build the Equation you have, or can be used to edit your
+function itself. Can add new terms as well. Can only be used on your
+functions. They become a part of your function when used, meaning these
+cards will be physically affected by your own actions or opponents
+actions.
+○ Number Card: A card with a value. Can be used with a spell card or
+offensive card as a factor. This binds the number card to the effect card
+until they reach the 3rd Dimension(graveyard), where they are unbound.
+○ Spell Card: Triggers an immediate effect (e.g., draw cards, damage
+opponent).
+○ Shield Card: Card used to protect your function from specific attacks.
+■ Ex. a natural log to protect against e
+■ Can also be used to protect/alter your own HP in evaluation mode
+○ Offensive Card: Card used to attack the other person's function or HP.
+■ Ex. Divide by 2,
+○ Theorem Card: Activates some effect. There are two types of theorem
+cards.
+■ Martial Theorems: Attacks and effects the opponent's function/HP.
+                ● Ex. Chaos Theory rearranged all the terms in the opponent's
+                function.
+                ● Ex. Bayes' Theorem prevents the opponent from choosing
+                any card in their hand for one turn. The opponent must use
+                their cards in the order their hand is in, going from left to
+                right.
+■ Artifact Theorems: Provides an ongoing benefit/effect on the
+                player's own cards. These are played as effect cards and exist for
+                multiple turns, either until the caster disables them or, if they have
+                a time limit, until that limit runs out.
+
+● Ex. Realist prevents any imaginary terms from entering your
+    function/HP
+○ Trap Card: Activates in response to an opponent's action.
+4. Expression Evaluation:
+○ A player can choose to evaluate their expression at any time if they have
+a [variable value prize card].
+○ The game calculates the expression's value based on the variable value
+that corresponds to the [variable value card] that the player uses to
+evaluate their expression.
+○ If their expression is in evaluation mode, the player can choose to revert
+it back to function mode at any time. The value of that [variable value
+card] is changed to match the value before the reversion back to function
+mode. It will be written down on the match notepad for the tabletop
+game, the web version will automatically change the face value.
+5. Victory Condition:
+○ The game ends in one two ways:
+■ When a player is able to isolate the opponent's variables.
+● This is when the opponent's expression is in function mode.
+● For example, when one player is able to get the other
+    player's expression to just be {x}
+■ When a player is able to diminish the opponent's HP to 0
+● This is when the opponent's expression is in evaluation
+    mode.
+● For example, when a player brings the evaluation down to 0
+    using attack cards or Planar Transformations
+
+Variable Isolation - 2nd gamemode
+
+Game Flow
+
+6. Initialization:
+○ Create players, shuffle each player's deck, and assign starting hands.
+         ■ Starting hand is the first ___ cards of the shuffled deck.
+○ Set up the game board if applicable.
+○ Shuffle the Function Component Card (FCC) deck. Only one deck is
+needed per game, so either player's deck can be used.
+○ Each player draws 10 cards in alternating order from the FCC deck.
+○ Each player builds their initial function.
+○ Each player sets up ___ prize cards stacked on top of one another. They
+are randomly selected from the deck. This mini-deck is then shuffled.
+Pulling cards from the prize deck is the same as pulling from the player's
+main deck.
+         ■ Different cards that are used in the game or major events that
+                  occur will dictate when someone can pull a prize card.
+7. Turn-Based Gameplay:
+○ Players alternate turns.
+○ On a player's turn:
+         ■ Draw a card from the deck.
+         ■ Play a card from the hand to the playing area.
+         ■ Perform actions based on the played card (e.g., modify expression
+                  with FCCs, activate abilities/theorems).
+                  ● Only 1 offensive move is allowed per turn.
+                  ● Put any amount of defensive cards into play and use any
+                  artifacts to activate effects on the battlefield.
+                  ● One trap card slot exists on either player's side. If a player
+                  has a trap card in their hand, they can set it in the trap slot if
+                  the trap slot is empty. When a trap is set, an offensive card
+                  is not allowed to be played in the same turn.
+                  ● If a trap is activated, the player that set it down must call it
+                  out.
+         ■ When an offensive card that is in play has applied its effect or is
+                  canceled, it goes to the 3rd Dimension(Graveyard). Any defensive
+                  cards or artifacts that have been disabled in that turn also go to
+                  the graveyard.
+
+                ● Using special cards, cards in the 3rd Dimension(Graveyard)
+                     can be pulled.
+8. Card Actions:
+○ Function Component Card: Activates a certain type of function which you
+can use to build the Equation you have, or can be used to edit your
+function itself. Can add new terms as well.
+○ Number Card: A card with a value. Can be used with a spell card or
+offensive card as a factor. This binds the number card to the effect card
+until they reach the 3rd Dimension(graveyard), where they are unbound.
+○ Spell Card: Triggers an immediate effect (e.g., draw cards, damage
+opponent).
+○ Shield Card: Card used to protect your function from specific attacks.
+■ Ex. a natural log to protect against e
+○ Offensive Card: Card used to attack the other person's function.
+■ Ex. Divide by 2
+○ Theorem Card: Activates some effect. There are two types of theorem
+cards.
+■ Martial Theorems: Attacks and effects the opponent's function.
+                ● Ex. Chaos Theory rearranged all the terms in the opponent's
+                     function.
+                ● Ex. Bayes' Theorem prevents the opponent from choosing
+                     any card in their hand for one turn. The opponent must use
+                     their cards in the order their hand is in, going from left to
+                     right.
+■ Artifact Theorems: Provides an ongoing benefit/effect on the
+                player's own cards. These are played as effect cards and exist for
+                multiple turns, either until the caster disables them or, if they have
+                a time limit, until that limit runs out.
+                ● Ex. Realist prevents any imaginary terms from entering your
+                     function
+○ Trap Card: Activates in response to an opponent's action.
+9. Victory Condition:
+○ The game ends when a player is able to isolate the opponent's variables.
+■ For example, when one player is able to get the other player's
+                expression to just be {x}.
+
+Classic Clash - HP gamemode
+
+Purely attack each other's HP; their hp starts in as an empty set and they can use cards
+to begin the game at a numerical form. The hp value can be turned into an expression
+with multiple turns using things like theorem cards. First person to reach 0 HP loses.
+WIP
