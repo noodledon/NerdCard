@@ -1,0 +1,367 @@
+NERDICARD: Calculus, Number Theory & Linear
+              Algebra Edition
+             Official Rulebook
+
+
+
+
+
+                                Version 1.0
+
+Comprehensive and formal game rules, including base game and Linear Algebra
+                                 expansion
+
+Contents
+
+1 Introduction                                 3
+
+2 Game Components                              3
+2.1   Card Types                               3
+2.2   Players' Hands and Boards                3
+
+3 Game Setup                                   3
+3.1   Player Initialization                    3
+3.2   Function Construction                    4
+3.3   Boards                                   4
+3.4   Decks and Draw Piles                     4
+
+4 Turn Structure and Gameplay                  4
+4.1   Turn Order                               4
+4.2   Action Restrictions                      5
+
+5 Function Construction and Modification       5
+5.1   General Restrictions                     5
+5.2   Base Domains and Limitations             5
+5.3   Multiple Boards and Composition          5
+
+6 Card Types and Effects                       5
+6.1   Function Component Cards (FCCs)          5
+6.2   Action Cards                             6
+
+7 Mathematical Mechanics                       6
+7.1   Calculus                                 6
+7.2   Number Theory                            6
+7.3   Linear Algebra                           6
+
+8 Health Points and Function Evaluation        7
+8.1   Initial HP and Evaluation                7
+8.2   HP Gain Formula                          7
+8.3   Function Evaluation and Aftereffects     7
+8.4   Force Evaluation                         7
+8.5   Stalling Prevention                      8
+
+9 Victory Conditions                           8
+
+10 Additional Rules and Clarifications         8
+10.1 Undefined and Infinite Evaluations        8
+10.2 Function Isolation and Rebuilding         8
+10.3 Card Rarity                               8
+
+11 Glossary                                    8
+
+
+
+
+      2
+
+1. Introduction
+
+NERDICARD is a mathematically driven strategic card game in which players construct,
+manipulate, and attack mathematical expressions through the use of function components
+grounded in calculus, number theory, and linear algebra. Players build functions across
+multiple boards, utilize advanced mathematical transformations and theorems to compro-
+mise opponents' functions or health points (HP), and evaluate expressions strategically
+to gain advantages. This rulebook details the game's components, setup, mechanics, and
+victory conditions.
+
+2. Game Components
+
+2.1. Card Types
+
+The game utilizes three principal decks:
+
+• Function              Component Cards (FCC): These cards represent mathematical func-
+       tions and operations used to construct and modify player functions. They include
+      base functions, calculus operations, number theory operations, and linear algebra
+expansions.
+• Number             Deck: Contains constants, prime numbers limited to the first three
+primes, well-known irrational numbers, and arithmetic operation cards.
+• Action        Deck: Contains offensive, defensive, trap, spell, and theorem cards, as
+        well as special action cards such as board additions, function composition, and
+evaluation.
+
+2.2. Players' Hands and Boards
+
+Each player manages:
+
+• A hand  of cards drawn from the decks.
+• Up to    three Function Boards, each corresponding to a specific function or function
+space (e.g., scalar-valued, vector-valued, or matrix-valued).
+• A set          of Variable Cards and Number Cards allocated at the start of the game.
+
+3. Game Setup
+
+3.1. Player Initialization
+
+Each player receives the following before the game begins:
+
+• Exactly         one Base Function Component Card, representing their initial function
+domain. Possible base domains include:
+- Rational functions (including polynomials of degree up to five)
+        - Trigonometric functions (up to six trig terms combined via addition or multi-
+plication)
+             - Exponential and logarithmic functions (up to ten combined logs and expo-
+nents)
+
+
+3
+
+• Ten       unique Variable Cards, labeled x1, x2, . . . , x10. Each variable card may be
+used once per function construction phase.
+• Ten         Number Cards, consisting of the primes 2, 3, and 5, and seven distinguished
+irrational numbers (e.g., π, e, √   2, √
+    3, φ, γ, log 2).
+• Five        randomly drawn starter cards from a combination of FCC, Action, and Defense
+decks.
+
+3.2. Function Construction
+
+Players construct their initial function according to the restrictions and allowances of
+their base card domain, using their variables and numbers.
+
+3.3. Boards
+
+Players begin with one active function board corresponding to their base card's domain.
+Additional boards may be added during gameplay via Add Board cards, including new
+boards for linear algebra mechanics.
+
+3.4. Decks and Draw Piles
+
+Players maintain three decks during gameplay:
+• FCC  Deck: Contains function component cards.
+• Number   Deck: Contains number and arithmetic operation cards.
+• Action            Deck: Contains attacks, defenses, theorems, traps, and special action
+cards.
+
+Players draw from these decks during their turns, as specified in the turn structure.
+
+4. Turn Structure and Gameplay
+
+4.1. Turn Order
+
+Players alternate turns in a clockwise order. Each turn consists of the following phases:
+
+             1. Draw Phase: The active player draws two cards from any combination of the
+three decks.
+
+2. Play Phase: The player may perform up to two actions. Valid actions include:
+• Building     or modifying their function(s) using FCC cards.
+• Playing     attack cards targeting opponent functions or HP.
+• Playing     defense, trap, or theorem cards.
+• Playing          special action cards (e.g., Add Board, Composition, Force Evaluation).
+• Evaluating   their function.
+
+           3. Defense Phase: Other players may respond immediately to attacks or plays by
+       using defense or trap cards. Each player may play only one such card per triggered
+event.
+
+          4. Resolution Phase: All played cards are resolved and any used cards are moved
+to the graveyard (the 3rd Dimension).
+
+    4
+
+4.2. Action Restrictions
+• Players may only perform one offensive action per turn.
+• Trap cards occupy a dedicated trap slot; setting a trap prohibits playing an offensive
+card during that turn.
+• Defense    and trap cards may be played reactively on any player's turn.
+• Players may maintain up to three function boards concurrently.
+
+5. Function Construction and Modification
+
+5.1. General Restrictions
+• Variables       can only be used once per function construction phase and are released
+upon function evaluation.
+• Number     cards can be reused unless specified otherwise.
+• Functions  must conform to the domain specified by the player's base card.
+• Constants        used in polynomial terms are restricted to integers between -5 and 5,
+excluding zero unless explicitly allowed.
+
+5.2. Base Domains and Limitations
+
+Rational Functions: Polynomials of degree up to five. Rational functions consist of a
+          numerator and denominator, each a polynomial of degree at most five. Constants
+       in terms must be within the allowed integer range and used at most once per term.
+Trigonometric Functions: Functions may include up to six trigonometric terms (sine,
+     cosine, tangent, etc.) combined by addition or multiplication only. No compositions
+are permitted.
+Exponential and Logarithmic Functions: Functions may contain up to ten com-
+      bined logarithmic and exponential terms with bases 2, 10, or e. A logarithm raised
+              to a power counts as two terms toward the limit. Terms may be combined via
+addition, multiplication, or division.
+
+5.3. Multiple Boards and Composition
+
+Players may possess up to three function boards, each with its own function. Players may
+use Composition Cards to substitute one board's function into a variable of another
+board's function, with the following rules:
+
+• Compositions       may only occur between boards with different base function domains.
+• Nested  composition depth is limited to two.
+
+6. Card Types and Effects
+
+6.1. Function Component Cards (FCCs)
+FCCs include:
+
+• Add               Term Cards: Add terms to the function in compliance with base domain
+rules.
+
+
+5
+
+• Calculus   FCCs: Enable differentiation, integration (indefinite and definite), limit
+evaluation, and continuity manipulations.
+• Number              Theory FCCs: Include operations such as modular arithmetic, prime
+factor manipulation, and theorems influencing function coefficients and variables.
+• Linear        Algebra FCCs: Facilitate vector and matrix operations, linear transfor-
+mations, and rank and eigenvalue manipulations.
+
+6.2. Action Cards
+Action cards include:
+
+• Offensive  attack cards targeting opponent functions or HP.
+• Defense and shield cards protecting functions or HP.
+• Trap  cards that activate in response to opponent actions.
+• Theorem     cards granting strategic effects, categorized as Martial Theorems (offen-
+sive) and Artifact Theorems (defensive or passive).
+• Special action cards such as Add Board, Composition, and Force Evaluation.
+
+7. Mathematical Mechanics
+
+7.1. Calculus
+• Differentiation  cards may target entire functions or specific terms, applying power,
+chain, product, or quotient rules.
+• Integration      cards come in two types: indefinite and definite. Definite integrals
+require bounds supplied from the player's hand but do not consume those cards.
+• Recursive    integration (multiple integrations with respect to one or multiple vari-
+ables) is permitted.
+• If a  player suspects a function is not integrable, they may challenge with an "Inte-
+grable?" card once every three rounds. Failure to integrate causes HP penalty to
+the challenger.
+• Limit   evaluation cards allow evaluation of function limits at specified points. Un-
+defined or infinite limits cause destruction of the function board or immediate loss
+if integral to the player's survival.
+
+7.2. Number Theory
+• Players may manipulate coefficients and variables using modular arithmetic.
+• Prime-based cards can alter constants or act as multipliers.
+• Theorems         such as Euler's theorem, Fermat's little theorem, and others provide
+offensive and defensive effects.
+
+7.3. Linear Algebra
+• Players                  may add Vector Space Boards or Matrix Boards using Add Board
+cards.
+• Functions  on these boards may be vector-valued or matrix-valued.
+• Players may apply linear transformations such as rotations, reflections, projections,
+and scalings.
+
+    6
+
+   • Rank         and nullity can be manipulated to affect the function's complexity and vul-
+   nerability.
+   • Eigenvalue and eigenvector cards confer scaling effects or protection.
+   • Determinant and inverse operations are used to attack or defend matrix boards.
+   • Players   may solve systems of linear equations via card effects to isolate variables or
+   reduce opponent HP.
+
+   8. Health Points and Function Evaluation
+
+   8.1. Initial HP and Evaluation
+   Each player starts the game with zero health points (HP). Players increase their HP by
+   evaluating their functions.
+   Evaluation requires:
+   • A Variable  Value Card to substitute variables.
+   • The  player calculates the function's value at the substituted point.
+   • HP  gained is proportional to the function value and its complexity.
+
+   8.2. HP Gain Formula
+
+   The health points gained from evaluating a function are calculated as:
+
+       HP Gain = Function Value ×     Complexity Score,
+       10
+   where
+   • The  Complexity Score is the sum of:
+   - +1 for each distinct variable term,
+   - +1 for each additional term beyond the first,
+   - +2 for each composition applied.
+   • Functions        with fewer than two variable terms are ineligible to gain HP upon eval-
+uation.
+
+   8.3. Function Evaluation and Aftereffects
+   • Evaluated       functions are removed from the board and their cards reshuffled into the
+   FCC deck.
+   • Variables used are returned to the player's hand.
+
+   8.4. Force Evaluation
+   A Force Evaluation card compels all players to evaluate their functions simultaneously.
+   If the initiator's evaluated function value is greater than twice the value of every other
+   player, the initiator wins immediately.
+   Otherwise:
+   • Half of the initiator's HP is evenly distributed among all players.
+   • The       remaining half is distributed among players whose evaluated values exceed that
+   of the initiator.
+   • The  initiator's function is destroyed, and no HP is gained.
+
+       7
+
+8.5. Stalling Prevention
+
+If no player evaluates their function within 20 turns globally or if five consecutive turns
+pass without any evaluation, all players must evaluate at the next opportunity.
+
+9. Victory Conditions
+
+A player wins the game by achieving any one of the following conditions:
+1. Reducing all opposing players' HP to zero.
+         2. Forcing an opponent's function to isolate a single variable and preventing its re-
+building within three turns.
+            3. Winning by force evaluation domination (initiator's evaluated function value is
+greater than twice every other's).
+              4. Reducing an opponent's vector space dimension to zero or forcing their matrix
+board to be singular (non-invertible).
+
+10. Additional Rules and Clarifications
+
+10.1. Undefined and Infinite Evaluations
+
+If evaluation yields an undefined or infinite value, the affected function board is destroyed.
+Undefined evaluation results in immediate loss of the game.
+
+10.2. Function Isolation and Rebuilding
+A player with an isolated variable function must reconstruct a valid function conforming
+to base domain rules within three turns or lose the game.
+
+10.3. Card Rarity
+
+Cards are classified by rarity and strength:
+• Common Cards: Basic FCCs, numbers, and simple actions.
+• Rare               Cards: Composite functions, specialized calculus operations, and mid-tier
+theorems.
+• Ultra               Rare Cards: Board addition, composition, force evaluation, advanced the-
+orems, and linear algebra mechanics.
+
+11. Glossary
+
+Board: A designated play area representing a single function or function space.
+Function Component Card (FCC): A card used to build or modify functions.
+Variable Card: Card representing a variable symbol for function construction.
+Number Card: Card representing a numeric constant or arithmetic operator.
+Evaluation: The process of substituting variables with values to compute function value
+and gain HP.
+Trap: A card that responds to opponent actions by negating or altering effects.
+Force Evaluation: A special card compelling all players to evaluate functions simulta-
+neously.
+
+    8
