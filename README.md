@@ -1,0 +1,1 @@
+This project was originally inspired by Reels and brought to life in Discord, but it eventually died out and became a forgotten memory - until Nerd_kinf stepped in to resurrect it and officially bring it back to life. (I hope it can...)
