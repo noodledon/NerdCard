@@ -256,7 +256,7 @@ A player wins by achieving ANY ONE of:
 
 | # | Condition | How It Triggers |
 |---|-----------|-----------------|
-| 1 | **Reduce opponent HP to 0** | Attack cards or post-force-eval HP=0 |
+| 1 | **Reduce opponent HP to 0** | Attack cards or post-force-eval reduce HP to 0, **but only if the opponent has previously gained positive HP via evaluation at least once** (tracked via `everGainedHP` flag). A player who has never evaluated is immune to the HP-loss path — they're vulnerable to the other three win conditions, and stalling prevention eventually forces evaluation (which sets `everGainedHP=true`, making them vulnerable again). |
 | 2 | **Isolate opponent's variables** | Reduce opponent's function to a single variable like `{x}`. They have **3 turns** to rebuild a valid function. If they fail → they lose. Tracked via `variable_isolation_timers[sessionId]`. |
 | 3 | **Force Evaluation domination** | Initiator's value > 2× every opponent's (see §10) |
 | 4 | **Linear Algebra destruction** | Reduce opponent's vector space dimension to 0, OR force their matrix board to become singular (determinant = 0) |
