@@ -1,0 +1,221 @@
+# NERDICARD — Fix Cluster: C5 + M2 + M6 + m3
+# Each block: START label / END label with OLD-TEXT and NEW-TEXT pairs.
+
+# ============================================================
+# BLOCK 1: C5-T9-acceptance
+# ============================================================
+START C5-T9-acceptance
+OLD-TEXT:
+    - `complexity: f(x)=x → 0 (ineligible)` — `expect(computeComplexity(parse('x'))).toBe(0)`. (Walker for single-variable literal — not 2 distinct variable terms; returns 0 to mark ineligible.)
+NEW-TEXT:
+    - `complexity: f(x)=x → raw=1, eligible=0 (ineligible)` — `expect(computeComplexity(parse('x'))).toBe(1)` AND `expect(computeEligibleComplexity(parse('x'))).toBe(0)`. (Walker raw score = 1 per rulebook +1/distinct-var; eligible-gated = 0 because <2 distinct variable terms.)
+END C5-T9-acceptance
+
+# ============================================================
+# BLOCK 2: C5-T9-test-array
+# ============================================================
+START C5-T9-test-array
+OLD-TEXT:
+    - `complexity: f(x,y)=x^2+y → 2 distinct variable terms, complexity = 2 (eligible)`.
+    - `complexity: f(x)=sin(cos(x)) → composition +2, complexity = 3` (T9 walker composition rule).
+    - `HP formula: f(x,y)=x^2+y, value@{x:2,y:3}=7, complexity=2 → HP gain = (7*2)/10 = 1.4 → stored ×10 = 14`.
+    - `HP stored integer ×10: round-trip — gain 1.4 HP → state.hp_X10 increments by 14, NOT 13 or 15` (FP epsilon guard).
+NEW-TEXT:
+    - `complexity: f(x,y)=x^2+y → 2 distinct vars + 1 term beyond first, complexity = 3 (eligible per T9 walker)`.
+    - `complexity: f(x)=sin(cos(x)) → composition +2, complexity = 3` (T9 walker composition rule).
+    - `HP formula: f(x,y)=x^2+y, VVC=2 for all vars → value=6, complexity=3 → hpGain10 = Math.floor(6*3/10)*10 = 10` (single-VVC policy; HP integer ×10).
+    - `HP stored integer ×10: round-trip — gain 10 hp10 units → state.hp10 increments by 10, NOT 14 or 15` (FP epsilon guard).
+END C5-T9-test-array
+
+# ============================================================
+# BLOCK 3: C5-T17-expectations
+# ============================================================
+START C5-T17-expectations
+OLD-TEXT:
+    - `win-detection: HP_X10 reaches 0 → win_reason='hp_zero'`.
+NEW-TEXT:
+    - `win-detection: hp10 reaches 0 → win_reason='hp_zero'`.
+END C5-T17-expectations
+
+# ============================================================
+# BLOCK 3b: C5-T17-expectations (T17 Suite 2 test names)
+# ============================================================
+START C5-T17-expectations
+OLD-TEXT:
+    - `eval HP gain: f(x,y)=x^2+y @ {x:2,y:3} = 7, complexity=2 → +20 HP×10` (integer-scaled).
+NEW-TEXT:
+    - `eval HP gain: f(x,y)=x^2+y, VVC=2 for all vars → value=6, complexity=3 → +10 hp10` (integer ×10, single-VVC policy).
+END C5-T17-expectations
+
+# ============================================================
+# BLOCK 3c: C5-T17-expectations (T17 Suite 2 FP test name)
+# ============================================================
+START C5-T17-expectations
+OLD-TEXT:
+    - `force eval: FP — HP_X10 integerization, gain of 0.5 HP rounds consistently (banker's or round-half-up per T12 — EXACT value asserted, document choice in test)`.
+NEW-TEXT:
+    - `force eval: FP — hp10 integerization via Math.floor per T13; gain of 0.5 HP rounds consistently (EXACT value asserted, document choice in test)`.
+END C5-T17-expectations
+
+# ============================================================
+# BLOCK 4: M2-T3-vvc-add (header + count + insert VVC cards)
+# ============================================================
+START M2-T3-vvc-add
+OLD-TEXT:
+   - The 25 cards (this is the WHOLE catalog — do not add more):
+NEW-TEXT:
+   - The 30 cards (25 main deck + 5 Variable Value Cards — this is the WHOLE v1 catalog; do not add more beyond this set):
+END M2-T3-vvc-add
+
+# ============================================================
+# BLOCK 4b: M2-T3-vvc-add (insert VVC cards after card #25)
+# ============================================================
+START M2-T3-vvc-add
+OLD-TEXT:
+       25. `num-irrational-phi` — "Golden Ratio" — `effectParams { value: 'phi', symbolic: true }`.
+   - Create `server/src/data/card-catalog.schema.json` — JSON Schema validating the catalog shape
+NEW-TEXT:
+       25. `num-irrational-phi` — "Golden Ratio" — `effectParams { value: 'phi', symbolic: true }`.
+     - **Variable Value Cards (5) — dealt separately; not in deck pools**:
+        26. `vvc-001` — "Variable Anchor: 2" — `type: 'number'`, `deck: 'number'`, `subtype: 'variable-value'`, `rarity: 'common'`, `effectType: 'eval_value'`, effectParams `{ numericValue: 2 }`, targetRules `{ scope: 'self' }`.
+        27. `vvc-002` — "Variable Anchor: π" — `type: 'number'`, `deck: 'number'`, `subtype: 'variable-value'`, `rarity: 'common'`, `effectType: 'eval_value'`, effectParams `{ numericValue: 'pi', symbolic: true }`, targetRules `{ scope: 'self' }`.
+        28. `vvc-003` — "Variable Anchor: 3" — `type: 'number'`, `deck: 'number'`, `subtype: 'variable-value'`, `rarity: 'common'`, `effectType: 'eval_value'`, effectParams `{ numericValue: 3 }`, targetRules `{ scope: 'self' }`.
+        29. `vvc-004` — "Variable Anchor: 10" — `type: 'number'`, `deck: 'number'`, `subtype: 'variable-value'`, `rarity: 'common'`, `effectType: 'eval_value'`, effectParams `{ numericValue: 10 }`, targetRules `{ scope: 'self' }`.
+        30. `vvc-005` — "Variable Anchor: -1" — `type: 'number'`, `deck: 'number'`, `subtype: 'variable-value'`, `rarity: 'common'`, `effectType: 'eval_value'`, effectParams `{ numericValue: -1 }`, targetRules `{ scope: 'self' }`.
+     - VVC dealing policy: 5 starter VVCs per player dealt during construction phase end. VVCs are NOT drawn from FCC/Number/Action decks and are NOT in deck pools. They exist as a separate hand category dealt alongside the base FCC.
+   - Create `server/src/data/card-catalog.schema.json` — JSON Schema validating the catalog shape
+END M2-T3-vvc-add
+
+# ============================================================
+# BLOCK 4c: M2-T3-vvc-add (update acceptance criteria count)
+# ============================================================
+START M2-T3-vvc-add
+OLD-TEXT:
+   - [ ] `server/src/data/card-catalog.json` exists with exactly 25 card objects + a root `_comment` containing `FROZEN for v1`.
+NEW-TEXT:
+   - [ ] `server/src/data/card-catalog.json` exists with exactly 30 card objects (25 main + 5 VVC) + a root `_comment` containing `FROZEN for v1`.
+END M2-T3-vvc-add
+
+# ============================================================
+# BLOCK 4d: M2-T3-vvc-add (update test assertion count)
+# ============================================================
+START M2-T3-vvc-add
+OLD-TEXT:
+       3. Assert "Card count is exactly 25" passes — `loadCatalog().length === 25`.
+NEW-TEXT:
+       3. Assert "Card count is exactly 30" passes — `loadCatalog().length === 30`.
+END M2-T3-vvc-add
+
+# ============================================================
+# BLOCK 5: M6-T6-schema-hp (PlayerSchema field rename + JSDoc)
+# ============================================================
+START M6-T6-schema-hp
+OLD-TEXT:
+   - Create `PlayerSchema` (extends `Schema`) with: `sessionId: string`, `displayName: string`, `hp: number` (starts 0), `isConnected: boolean`,
+NEW-TEXT:
+   - Create `PlayerSchema` (extends `Schema`) with: `sessionId: string`, `displayName: string`, `hp10: number` /** HP stored as integer ×10 for FP determinism. Display = hp10 / 10. */ (starts 0), `isConnected: boolean`,
+END M6-T6-schema-hp
+
+# ============================================================
+# BLOCK 5b: M6-T6-schema-hp (round-trip test hp→hp10×10)
+# ============================================================
+START M6-T6-schema-hp
+OLD-TEXT:
+          const pA = new PlayerSchema(); pA.sessionId = "sessA"; pA.hp = 12; pA.handCount = 0;
+          const pB = new PlayerSchema(); pB.sessionId = "sessB"; pB.hp = 7; pB.handCount = 2;
+NEW-TEXT:
+          const pA = new PlayerSchema(); pA.sessionId = "sessA"; pA.hp10 = 120; pA.handCount = 0;
+          const pB = new PlayerSchema(); pB.sessionId = "sessB"; pB.hp10 = 70; pB.handCount = 2;
+END M6-T6-schema-hp
+
+# ============================================================
+# BLOCK 6: M6-T2-state-hp (PlayerState interface rename)
+# ============================================================
+START M6-T2-state-hp
+OLD-TEXT:
+    - SERVER-side root state SHAPE types (plain TS interfaces — NOT `@colyseus/schema` classes; the Schema classes come in Wave 2. T2 defines the contract they'll implement): `PlayerState` (`id: string; hp: number; hand: Card[]; boards: Board[]; deckCounts: Record<DeckType, number>; variableCardsUsed: Set<number>`),
+NEW-TEXT:
+    - SERVER-side root state SHAPE types (plain TS interfaces — NOT `@colyseus/schema` classes; the Schema classes come in Wave 2. T2 defines the contract they'll implement): `PlayerState` (`id: string; hp10: number; hand: Card[]; boards: Board[]; deckCounts: Record<DeckType, number>; variableCardsUsed: Set<number>`),
+END M6-T2-state-hp
+
+# ============================================================
+# BLOCK 7: M6-T14-fixtures-compatible (T14 already hp10; fix T19 Godot client)
+# ============================================================
+
+# NOTE: T14 fixtures already use hp10 consistently — no changes needed.
+# T19 Godot client fixes follow:
+
+START M6-T14-fixtures-compatible
+OLD-TEXT:
+      ├─ HPLabel          (text = str(int(state.hp / 10)))  // server stores HP×10
+NEW-TEXT:
+      ├─ HPLabel          (text = str(int(state.hp10 / 10)))  // server stores HP×10
+END M6-T14-fixtures-compatible
+
+# ============================================================
+# BLOCK 7b: M6-T14-fixtures-compatible (T19 hp ref in render logic)
+# ============================================================
+START M6-T14-fixtures-compatible
+OLD-TEXT:
+   - `players.p1.hp / 10` → LocalPanel.HPLabel; `players.p2.hp / 10` → OpponentPanel.HPLabel
+NEW-TEXT:
+   - `players.p1.hp10 / 10` → LocalPanel.HPLabel; `players.p2.hp10 / 10` → OpponentPanel.HPLabel
+END M6-T14-fixtures-compatible
+
+# ============================================================
+# BLOCK 7c: M6-T14-fixtures-compatible (T19 GameModel path ref)
+# ============================================================
+START M6-T14-fixtures-compatible
+OLD-TEXT:
+   - [ ] `GameModel` (Dictionary mirror) populated on every `on_state_change`; downstream fields accessible via `GameModel.players.p1.hp` style paths.
+NEW-TEXT:
+   - [ ] `GameModel` (Dictionary mirror) populated on every `on_state_change`; downstream fields accessible via `GameModel.players.p1.hp10` style paths.
+END M6-T14-fixtures-compatible
+
+# ============================================================
+# BLOCK 8: m3-T13-example-fixer (concrete example value=7 → 6)
+# ============================================================
+START m3-T13-example-fixer
+OLD-TEXT:
+ - Return value concrete example with the doc's example data:
+   - `f(x,y) = x^2 + y` at `scope = { x:2, y:3 }` → `value = 7`.
+   - T9 walker: 2 distinct vars (x, y) ⇒ +2; 1 term beyond first ⇒ +1; 0 compositions ⇒ 0. **Verify against T9 walker rules** — expected `complexity = 3` (if T9 says "term beyond first" counts terms, not vars; the doc lists two distinct variable terms (x, y) = +2, plus one term beyond first = +1, total 3). Record this in `.sisyphus/evidence/task-13-concrete-complexity.txt` showing T9 walker output exactly = 3.
+   - `hpGain = Math.floor(7 × 3 / 10) = Math.floor(2.1) = 2`; `hpGain10 = 2 * 10 = 20`. HP×10 field increments by 20.
+NEW-TEXT:
+ - Return value concrete example with the single-VVC policy:
+   - `f(x,y) = x^2 + y` at `scope = { x:2, y:2 }` (single VVC value=2 substitutes for ALL variables per §13a policy) → `value = 6`.
+   - T9 walker: 2 distinct vars (x, y) ⇒ +2; 1 term beyond first ⇒ +1; 0 compositions ⇒ 0 → `complexity = 3`. Record this in `.sisyphus/evidence/task-13-concrete-complexity.txt` showing T9 walker output exactly = 3.
+   - `hpGain10 = Math.floor(6 × 3 / 10) * 10 = Math.floor(1.8) * 10 = 10`. HP×10 field increments by 10.
+END m3-T13-example-fixer
+
+# ============================================================
+# BLOCK 8b: m3-T13-example-fixer (acceptance criteria value/hpGain10)
+# ============================================================
+START m3-T13-example-fixer
+OLD-TEXT:
+ - Concrete example asserts in tests: `value=7`, `complexity=3`, `hpGain10=20`, and after applying HP the player schema's `hp10` increases by exactly 20.
+NEW-TEXT:
+ - Concrete example asserts in tests: `value=6`, `complexity=3`, `hpGain10=10`, and after applying HP the player schema's `hp10` increases by exactly 10.
+END m3-T13-example-fixer
+
+# ============================================================
+# BLOCK 9: S4-jdoc-note
+#   NOTE: The JSDoc comment was already added in M6-T6-schema-hp above
+#   (the `hp10: number` field rename included the JSDoc inline).
+#   This block is a NO-OP confirmation — S4 is satisfied by M6-T6-schema-hp.
+# ============================================================
+START S4-jdoc-note
+OLD-TEXT:
+   (No separate edit — JSDoc was included in M6-T6-schema-hp block above.)
+NEW-TEXT:
+   (No separate edit — JSDoc was included in M6-T6-schema-hp block above.)
+END S4-jdoc-note
+
+# ============================================================
+# VERIFICATION NOTES — no edits, just confirmations
+# ============================================================
+# M6-CONSISTENCY-CHECK: T13 EvalResult uses hpGain10 ✓ (line 1667)
+# M6-CONSISTENCY-CHECK: T13 EvalCommand uses p.hp10 += result.hpGain10 ✓ (line 1582)
+# M6-CONSISTENCY-CHECK: T14 fixtures use hp10 everywhere ✓ (lines 1827-1828, 1840-1841)
+# M6-CONSISTENCY-CHECK: T14 win logic uses hp10 <= 0 ✓ (line 1775, 1807)
+# All already consistent — no fixes needed beyond the blocks above.

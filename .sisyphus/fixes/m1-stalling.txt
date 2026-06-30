@@ -1,0 +1,249 @@
+================================================================================
+M1 STALLING PREVENTION — TWO-COUNTER FIX
+Rulebook §8.5: "If no player evaluates their function within 20 turns globally
+OR if five consecutive turns pass without any evaluation, all players must
+evaluate at the next opportunity."
+
+BUG: Single counter `stalling_no_eval_turns` resets on eval, making the
+20-global-turn mechanism unreachable. Fix: split into TWO counters with
+different reset policies.
+
+GLOBAL-CAP SEMANTICS (decided):
+  - `global_no_eval_turns` caps at 20 and NEVER resets.
+  - Once global reaches 20, force-eval fires on THAT turn.
+  - After force-eval resolves (an evaluation happened), the global counter
+    stays at 20 but no further force-eval fires until 5 MORE consecutive
+    no-eval turns accumulate (via the consecutive counter).
+  - If the game reaches global=20 AGAIN (hypothetical — can't happen since
+    it never resets), it would just stay at 20 with no re-trigger because
+    the eval already occurred.
+
+RESET SEMANTICS (decided):
+  - `consecutive_no_eval_turns` resets to 0 ONLY on a SUCCESSFUL eval
+    (not on play, not on a rejected eval, not on attack). Per rulebook
+    "pass without any evaluation" — only an evaluation clears the streak.
+  - `global_no_eval_turns` NEVER resets.
+================================================================================
+
+--- BLOCK: M1-T2-interface ---
+T2 §What to do — GameRoomState interface (line 326)
+
+OLD-TEXT:
+`GameRoomState` (`phase: Phase; currentTurn: number; stalling_no_eval_turns: number; variable_isolation_timers: Record<string, number>; players: Record<string, PlayerState>; winnerId: string | null; winReason: WinReason | null`).
+
+NEW-TEXT:
+`GameRoomState` (`phase: Phase; currentTurn: number; consecutive_no_eval_turns: number; global_no_eval_turns: number; variable_isolation_timers: Record<string, number>; players: Record<string, PlayerState>; winnerId: string | null; winReason: WinReason | null`).
+
+--- BLOCK: M1-T2-zod ---
+T2 §What to do — Zod mirror (line 346)
+
+OLD-TEXT:
+- `GameRoomState` requires `stalling_no_eval_turns` and `variable_isolation_timers` fields (compile-time + runtime via a Zod mirror — `z.object({ stalling_no_eval_turns: z.number().int().min(0).max(20), variable_isolation_timers: z.record(z.string(), z.number().int()) })`).
+
+NEW-TEXT:
+- `GameRoomState` requires `consecutive_no_eval_turns`, `global_no_eval_turns`, and `variable_isolation_timers` fields (compile-time + runtime via a Zod mirror — `z.object({ consecutive_no_eval_turns: z.number().int().min(0).max(5), global_no_eval_turns: z.number().int().min(0).max(20), variable_isolation_timers: z.record(z.string(), z.number().int()) })`). Consecutive caps at 5 (resets on any eval), global caps at 20 (never resets, triggers force-eval when reached).
+
+--- BLOCK: M1-T2-must-not ---
+T2 §Must NOT do — bounds mention (line 354)
+
+OLD-TEXT:
+- Do NOT bake in `stalling_no_eval_turns` upper-bound logic beyond the type — actual increment/reset happens in Wave 2 room logic. T2 only declares the field and its bounds (0..20).
+
+NEW-TEXT:
+- Do NOT bake in `consecutive_no_eval_turns` or `global_no_eval_turns` upper-bound logic beyond the type — actual increment/reset happens in Wave 2 room logic. T2 only declares the fields and their bounds (consecutive 0..5, global 0..20).
+
+--- BLOCK: M1-T2-acceptance ---
+T2 §Acceptance Criteria (line 391)
+
+OLD-TEXT:
+- [ ] `GameRoomState` interface includes `stalling_no_eval_turns: number` and `variable_isolation_timers: Record<string, number>`.
+
+NEW-TEXT:
+- [ ] `GameRoomState` interface includes `consecutive_no_eval_turns: number`, `global_no_eval_turns: number`, and `variable_isolation_timers: Record<string, number>`.
+
+--- BLOCK: M1-T2-qa ---
+T2 §QA Scenarios — Stalling and isolation counters (lines 415-418)
+
+OLD-TEXT:
+       2. Assert test "GameRoomState exposes stalling_no_eval_turns" compiles AND the runtime Zod mirror `RoomStateSchema.parse({ ...stalling_no_eval_turns: 25 })` throws because 25 > 20.
+       3. Assert a missing `variable_isolation_timers` field fails the mirror parse with path `['variable_isolation_timers']`.
+     Expected Result: Both bounds/presence checks fire — proving the 4 critical constraints are encoded at the contract layer.
+     Failure Indicators: `stalling_no_eval_turns: 25` parses OK — means the 0..20 bound isn't on the mirror; a future room bug could overflow the counter silently.
+
+NEW-TEXT:
+       2. Assert test "GameRoomState exposes consecutive_no_eval_turns and global_no_eval_turns" compiles AND the runtime Zod mirror rejects `consecutive_no_eval_turns: 6` (>5) AND rejects `global_no_eval_turns: 25` (>20).
+       3. Assert a missing `variable_isolation_timers` field fails the mirror parse with path `['variable_isolation_timers']`.
+     Expected Result: Both bounds/presence checks fire — proving the 4 critical constraints are encoded at the contract layer (two separate stalling counters with distinct max bounds).
+     Failure Indicators: `consecutive_no_eval_turns: 6` parses OK — means the 0..5 bound isn't on the mirror. `global_no_eval_turns: 25` parses OK — means the 0..20 bound isn't on the mirror.
+
+--- BLOCK: M1-T2-references ---
+T2 §References — critical constraints mention (line 373)
+
+OLD-TEXT:
+- `.sisyphus/drafts/nerdicard-backend.md:129-133` — the 4 critical user-locked constraints: (1) string-only expressions in Schema, (3) `stalling_no_eval_turns: number` (0..20), (4) `variable_isolation_timers: MapSchema<number>`.
+
+NEW-TEXT:
+- `.sisyphus/drafts/nerdicard-backend.md:129-133` — the 4 critical user-locked constraints: (1) string-only expressions in Schema, (3) `consecutive_no_eval_turns: number` (0..5, resets on eval) + `global_no_eval_turns: number` (0..20, never resets), (4) `variable_isolation_timers: MapSchema<number>`.
+
+--- BLOCK: M1-T2-evid ---
+T2 §Evidence to Capture (line 424)
+
+OLD-TEXT:
+- [ ] `task-2-critical-constraints.txt` — vitest output for the types test file, showing the 4 constraints (string-only, stalling 0..20, isolation timers required) enforced.
+
+NEW-TEXT:
+- [ ] `task-2-critical-constraints.txt` — vitest output for the types test file, showing the 4 constraints (string-only, consecutive stalling 0..5 + global stalling 0..20, isolation timers required) enforced.
+
+--- BLOCK: M1-T3-force-eval ---
+T3 §Frozen Card Catalog — Showdown card (line 456)
+
+OLD-TEXT:
+      18. `act-special-force-eval-001` "Showdown" — Special/Force Evaluation — effectParams `{ requiresStallingTurn: 20 | 5 }` (the card may be played manually OR surfaced by the stalling_no_eval_turns counter hitting 5/20). Per draft lines 64-65.
+
+NEW-TEXT:
+      18. `act-special-force-eval-001` "Showdown" — Special/Force Evaluation — effectParams `{ triggeredByConsecutive: 5, triggeredByGlobal: 20 }` (the card may be played manually OR surfaced automatically when `consecutive_no_eval_turns === 5` OR `global_no_eval_turns === 20`). Per draft lines 64-65 and rulebook §8.5 two-mechanism stalling prevention.
+
+--- BLOCK: M1-T6-schema ---
+T6 §What to do — GameRoomState schema field (line 825)
+
+OLD-TEXT:
+`stalling_no_eval_turns: number` (0..20 — drives 5-turn and 20-turn stalling prevention; increments each turn w/o eval, resets on eval),
+
+NEW-TEXT:
+`consecutive_no_eval_turns: number` (0..5 — drives 5-consecutive-turn rule; increments each turn w/o eval, resets ONLY on successful eval; triggers force-eval at 5),
+`global_no_eval_turns: number` (0..20 — drives 20-global-turn rule; increments each turn w/o eval, NEVER resets; caps at 20; triggers force-eval when reaching 20),
+
+--- BLOCK: M1-T6-must-not ---
+T6 §Must NOT do — field mutation line (line 836)
+
+OLD-TEXT:
+- Do NOT mutate `stalling_no_eval_turns` or `variable_isolation_timers` from schema.ts itself — schema defines shape only; mutations belong to T7/T10/T14.
+
+NEW-TEXT:
+- Do NOT mutate `consecutive_no_eval_turns`, `global_no_eval_turns`, or `variable_isolation_timers` from schema.ts itself — schema defines shape only; mutations belong to T11 (FSM stalling counters) and T14 (isolation timers).
+
+--- BLOCK: M1-T6-acceptance ---
+T6 §Acceptance Criteria (line 879)
+
+OLD-TEXT:
+- [ ] `stalling_no_eval_turns: number` and `variable_isolation_timers: MapSchema<number>` present on `GameRoomState`.
+
+NEW-TEXT:
+- [ ] `consecutive_no_eval_turns: number`, `global_no_eval_turns: number`, and `variable_isolation_timers: MapSchema<number>` present on `GameRoomState`.
+
+--- BLOCK: M1-T6-roundtrip ---
+T6 §QA Scenario — round-trip test (lines 897, 911)
+
+OLD-TEXT:
+          st.stalling_no_eval_turns = 3;
+
+NEW-TEXT:
+          st.consecutive_no_eval_turns = 1;
+          st.global_no_eval_turns = 3;
+
+--- BLOCK: M1-T6-roundtrip-assert ---
+T6 §QA Scenario — round-trip assertion (line 911)
+
+OLD-TEXT:
+          assert st.variable_isolation_timers.get("sessB") === 2 && st.stalling_no_eval_turns === 3;
+
+NEW-TEXT:
+          assert st.variable_isolation_timers.get("sessB") === 2 && st.consecutive_no_eval_turns === 1 && st.global_no_eval_turns === 3;
+
+--- BLOCK: M1-T11-stalling ---
+T11 §What to do — Stalling prevention impl (line 1467)
+
+OLD-TEXT:
+- **Stalling prevention** state (per Wave 1/2 constraint #3, mirrored from schema): expose pure `onEvalTurn(state)` (reset `stalling_no_eval_turns = 0`) and `onNoEvalTurn(state)` (increment; cap 20). At `=== 5` consecutive OR `=== 20` global → FSM emits a `force-eval` event the room/turn-orchestrator consumes to call T12's force eval. Keep these as pure state mutators on a passed-in `FSMState` plain object (NOT the Colyseus schema — the schema's `stalling_no_eval_turns` field is mirrored from this local source-of-truth by the room tick).
+
+NEW-TEXT:
+- **Stalling prevention** state (per Wave 1/2 constraint #3, mirrored from schema TWO-COUNTER design matching rulebook §8.5): expose pure mutators on a passed-in `FSMState` plain object (NOT the Colyseus schema — the schema fields are mirrored from this local source-of-truth by the room tick):
+  - `onEvalTurn(state)` — resets `consecutive_no_eval_turns = 0` ONLY. Global stays unchanged (never resets). Called ONLY on SUCCESSFUL eval, not on play/attack/rejected eval.
+  - `onNoEvalTurn(state)` — increments BOTH counters: `consecutive_no_eval_turns = Math.min(consecutive_no_eval_turns + 1, 5)`, `global_no_eval_turns = Math.min(global_no_eval_turns + 1, 20)`. Then check: if `consecutive === 5` OR `global === 20` → FSM emits a `force-eval` event the room/turn-orchestrator consumes to call T12's force eval. (Note: when global reaches 20, force-eval fires that turn; after the forced eval resolves, consecutive resets to 0 so the global trigger does not re-fire every subsequent turn until 5 more consecutive no-eval turns accumulate.)
+
+--- BLOCK: M1-T11-state-vars ---
+T11 §What to do — FSM state vars (line 1468)
+
+OLD-TEXT:
+- State vars on the FSM plain object: `currentTurn: number`, `turnDeadline: number`, `stalling_no_eval_turns: number`, `lastPhaseChangeAt: number`.
+
+NEW-TEXT:
+- State vars on the FSM plain object: `currentTurn: number`, `turnDeadline: number`, `consecutive_no_eval_turns: number`, `global_no_eval_turns: number`, `lastPhaseChangeAt: number`.
+
+--- BLOCK: M1-T11-must-not ---
+T11 §Must NOT do — clamp mention (line 1476)
+
+OLD-TEXT:
+- Do NOT set `stalling_no_eval_turns` above 20 (clamp).
+
+NEW-TEXT:
+- Do NOT set `consecutive_no_eval_turns` above 5 (clamp). Do NOT set `global_no_eval_turns` above 20 (clamp). Do NOT reset `global_no_eval_turns` — it is write-once-increment-only.
+
+--- BLOCK: M1-T11-acceptance ---
+T11 §Acceptance Criteria (line 1497)
+
+OLD-TEXT:
+- `npx vitest run server/test/logic/fsm.test.ts` 100% pass. Tests cover: every legal edge, every illegal edge (e.g. `play → waiting` rejected), `tick` overrun auto-pass (play 30 s → resolution, defense 15 s → resolution), `construction → gameOver` on timeout, stalling reset on eval, stalling cap at 20, stalling trigger at exactly 5 and exactly 20 firing the `force-eval` event.
+
+NEW-TEXT:
+- `npx vitest run server/test/logic/fsm.test.ts` 100% pass. Tests cover: every legal edge, every illegal edge (e.g. `play → waiting` rejected), `tick` overrun auto-pass (play 30 s → resolution, defense 15 s → resolution), `construction → gameOver` on timeout, `consecutive_no_eval_turns` resets to 0 on eval while `global_no_eval_turns` does NOT reset on eval, `consecutive_no_eval_turns` caps at 5, `global_no_eval_turns` caps at 20, stalling trigger at exactly consecutive=5 (even with low global) AND at exactly global=20 (even with low consecutive) firing the `force-eval` event, after force-eval resolves consecutive resets to 0 but global stays unchanged.
+
+--- BLOCK: M1-T11-evals ---
+T11 §Evals reference (line 1482)
+
+OLD-TEXT:
+- Evals: `npx vitest run server/test/logic/fsm.test.ts` — pure unit tests asserting every legal edge, every illegal edge rejected, timer overrun fires auto-pass, stalling caps + triggers (5 / 20) work.
+
+NEW-TEXT:
+- Evals: `npx vitest run server/test/logic/fsm.test.ts` — pure unit tests asserting every legal edge, every illegal edge rejected, timer overrun fires auto-pass, stalling caps + triggers (consecutive=5 / global=20) work, global counter never resets on eval, consecutive counter resets to 0 on eval.
+
+--- BLOCK: M1-T11-references ---
+T11 §References — API mention (line 1491)
+
+OLD-TEXT:
+- API: `Math.min/max` for clamping stalling counter (0..20). Pure `number` math — no floating point concerns in FSM.
+
+NEW-TEXT:
+- API: `Math.min/max` for clamping both stalling counters (consecutive 0..5, global 0..20). Pure `number` math — no floating point concerns in FSM.
+
+--- BLOCK: M1-T11-qa ---
+T11 §QA Scenario — illegal edge test state (line 1514)
+
+OLD-TEXT:
+const s = { phase: 'play', currentTurn: 1, turnDeadline: 0, stalling_no_eval_turns: 0, lastPhaseChangeAt: 0 };
+
+NEW-TEXT:
+const s = { phase: 'play', currentTurn: 1, turnDeadline: 0, consecutive_no_eval_turns: 0, global_no_eval_turns: 0, lastPhaseChangeAt: 0 };
+
+--- BLOCK: M1-T11-evidence ---
+T11 §Evidence (line 1529)
+
+OLD-TEXT:
+- `.sisyphus/evidence/task-11-stalling-5.txt` (forced-eval event fires at exactly 5 consecutive).
+
+NEW-TEXT:
+- `.sisyphus/evidence/task-11-stalling-5.txt` (forced-eval event fires at exactly 5 consecutive, regardless of global counter value).
+- `.sisyphus/evidence/task-11-stalling-20.txt` (forced-eval event fires at exactly 20 global, regardless of consecutive counter value; consecutive resets on eval but global does NOT).
+- `.sisyphus/evidence/task-11-stalling-reset-on-eval.txt` (consecutive_no_eval_turns resets to 0 on eval; global_no_eval_turns unchanged).
+
+--- BLOCK: M1-T13-force-eval-reset ---
+T13 §What to do — Force-eval reset block (after line 1681)
+
+OLD-TEXT:
+   - After force eval: used VVCs return to hand, evaluated function reshuffled into FCC deck (T7 deck exhaust handling).
+
+NEW-TEXT:
+   - After force eval resolves (whether it produces a winner or just board destruction):
+     - `consecutive_no_eval_turns = 0` (RESET — an evaluation just happened, breaking the consecutive streak). This follows rulebook §8.5: "five consecutive turns pass without any evaluation" — since an evaluation occurred, the streak ends.
+     - `global_no_eval_turns` DOES NOT reset (per rulebook "20 turns globally" — the global passage of turns is a historical fact that never resets). The global counter stays at its current value (capped at 20). After the forced eval, since consecutive is now 0, no further force-eval fires until either 5 more consecutive no-eval turns pass or (hypothetically) the game somehow reaches an even higher global count (which can't happen since it's capped at 20 and never resets).
+     - Used VVCs return to hand, evaluated function reshuffled into FCC deck (T7 deck exhaust handling).
+
+--- BLOCK: M1-T12-evalcommand ---
+T12 §EvalCommand — stalling reset via FSM tick (line 1583)
+
+OLD-TEXT:
+         p.evaluatedThisTurn = true; // triggers stalling reset via FSM tick
+
+NEW-TEXT:
+         p.evaluatedThisTurn = true; // triggers stalling reset via FSM: sets consecutive=0; global unchanged
+
