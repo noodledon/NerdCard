@@ -6,3 +6,8 @@ node_modules/
 
 # OS
 .DS_Store
+
+# Tooling / Agent
+.sisyphus/
+.codegraph/
+.agents/
