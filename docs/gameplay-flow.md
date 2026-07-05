@@ -1,7 +1,7 @@
 # NERDICARD — Gameplay Flow Explainer
 
 > A plain-language walkthrough of how NERDICARD actually plays, what's being built in the MVP, and the rules you can verify against the implementation.
-> Companion to the full development plan at `.sisyphus/plans/nerdicard-backend.md`.
+> Companion to the full development plan at `.sisyphus/plans/nerdicard-dev-plan.md`.
 
 ---
 
@@ -202,7 +202,7 @@ Evaluation is how you gain HP. Here's the exact flow:
 
 ## 10. Force Evaluation — The Showdown Card
 
-Force Evaluation is a high-stakes card that compels **all players to evaluate simultaneously**.
+Force Evaluation is a high-stakes card that compels **all players to evaluate simultaneously**. It can be played manually from hand OR is auto-triggered when either `consecutive_no_eval_turns` reaches 5 or `global_no_eval_turns` reaches 20 (see §12 stalling prevention). The card's effect params encode both trigger thresholds: `triggeredByConsecutive: 5`, `triggeredByGlobal: 20`.
 
 ### Resolution Logic (per rulebook §8.4)
 
@@ -283,7 +283,7 @@ The rulebook §8.5 has TWO independent anti-stall rules. The plan uses TWO count
 
 ---
 
-## 13. Cards: The Frozen MVP Catalog (~25 cards)
+## 13. Cards: The Frozen MVP Catalog (30 cards — 25 main + 5 VVCs)
 
 The v1 catalog is **frozen** — no additions during development. It spans every archetype:
 
@@ -311,7 +311,7 @@ The v1 catalog is **frozen** — no additions during development. It spans every
 | 15 | Euler's Ward | Artifact Theorem |
 | 16 | Second Foundation | Add Board |
 | 17 | Nested Chaos | Composition |
-| 18 | Showdown | Force Evaluation |
+| 18 | Showdown | Force Evaluation (`triggeredByConsecutive: 5`, `triggeredByGlobal: 20`) |
 | 19 | Evaluate | Evaluation trigger |
 
 ### Number Cards (6)
@@ -509,4 +509,4 @@ A "Math Engine Capability Matrix" document is part of the plan deliverables — 
 
 ---
 
-*This explainer is a companion document to `.sisyphus/plans/nerdicard-backend.md` (the full work plan). For implementation details, task specs, QA scenarios, and parallelization waves, refer to the plan.*
+*This explainer is a companion document to `.sisyphus/plans/nerdicard-dev-plan.md` (the full work plan). For implementation details, task specs, QA scenarios, and parallelization waves, refer to the plan.*

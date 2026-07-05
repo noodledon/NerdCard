@@ -1,0 +1,22 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "title": "NERDICARD Card Catalog",
+  "type": "array",
+  "items": {
+    "type": "object",
+    "properties": {
+      "id": {"type": "string", "pattern": "^[a-zA-Z0-9-_]+$"},
+      "name": {"type": "string"},
+      "type": {"type": "string", "enum": ["fcc", "number", "action"]},
+      "deck": {"type": "string", "enum": ["fcc", "number", "action"]},
+      "subtype": {"type": "string"},
+      "rarity": {"type": "string", "enum": ["common", "rare", "epic", "legendary"]},
+      "effectType": {"type": "string", "enum": ["add_term", "derivative", "integral", "limit", "continuity", "modular", "prime", "nt_theorem", "vector", "matrix", "transform", "eigenvalue", "offensive", "shield", "trap", "martial_theorem", "artifact_theorem", "add_board", "composition", "force_eval", "eval"]},
+      "effectParams": {"type": "object"},
+      "targetRules": {"type": "object"}
+    },
+    "required": ["id", "name", "type", "deck", "subtype", "rarity", "effectType", "effectParams", "targetRules"]
+  },
+  "minItems": 30,
+  "maxItems": 30
+}
