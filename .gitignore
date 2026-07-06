@@ -10,5 +10,4 @@ node_modules/
 # Tooling / Agent
 .sisyphus/
 .codegraph/
-.agents/
 AGENTS.md
