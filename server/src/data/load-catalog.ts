@@ -1,7 +1,13 @@
 import Ajv from "ajv";
 import type { Card, EffectType, TargetRules } from "../shared/types.js";
-import catalogJson from "./card-catalog.json" with { type: "json" };
 import catalogSchema from "./card-catalog.schema.json" with { type: "json" };
+import { readFileSync } from "fs";
+import { fileURLToPath } from "url";
+import { dirname, join } from "path";
+
+const __filename = fileURLToPath(import.meta.url);
+const __dirname = dirname(__filename);
+const CATALOG_PATH = join(__dirname, "card-catalog.json");
 
 export interface LoadedCatalog {
   cards: Card[];
@@ -49,8 +55,15 @@ function buildIndex(cards: Card[]): LoadedCatalog {
   return { cards, byId, byArchetype };
 }
 
+export function resetCatalogCache(): void {
+  cached = null;
+}
+
 export function loadCatalog(): Card[] {
   if (cached) return cached.cards;
+
+  const raw = readFileSync(CATALOG_PATH, "utf-8");
+  const catalogJson = JSON.parse(raw) as Record<string, unknown>;
 
   const ajv = new (Ajv as unknown as { new (options?: object): { compile(schema: unknown): (data: unknown) => boolean; errors?: unknown[] } })({ allErrors: true });
 
@@ -58,10 +71,9 @@ export function loadCatalog(): Card[] {
 
   const valid = validate(catalogJson.cards);
   if (!valid) {
-    const err = ajv.errors?.[0] as { instancePath?: string; message?: string } | undefined;
-    throw new Error(
-      `Card catalog validation failed: ${err?.message ?? "unknown error"} at ${err?.instancePath ?? "?"}`
-    );
+    const errors = (validate as { errors?: unknown[] }).errors ?? [];
+    const rawErr = JSON.stringify(errors, null, 2);
+    throw new Error(`Card catalog validation failed: ${rawErr}`);
   }
 
   cached = buildIndex((catalogJson.cards as Record<string, unknown>[]).map(toCard));

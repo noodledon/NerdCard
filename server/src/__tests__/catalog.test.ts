@@ -1,8 +1,12 @@
-import { describe, it, expect } from "vitest";
-import { loadCatalog, getCardById, getCardsByArchetype } from "../data/load-catalog.js";
+import { describe, it, expect, beforeEach } from "vitest";
+import { loadCatalog, getCardById, getCardsByArchetype, resetCatalogCache } from "../data/load-catalog.js";
 import type { EffectType } from "../shared/types.js";
 
 describe("card catalog", () => {
+  beforeEach(() => {
+    resetCatalogCache();
+  });
+
   it("loads exactly 30 cards", () => {
     expect(loadCatalog().length).toBe(30);
   });
@@ -48,7 +52,16 @@ describe("card catalog", () => {
       "eval",
     ];
 
-    for (const et of effectTypes) {
+    const catalog = loadCatalog();
+    const present = new Set(catalog.map((c) => c.effectType));
+
+    // Every card in the catalog must have a valid EffectType
+    for (const et of present) {
+      expect(effectTypes).toContain(et);
+    }
+
+    // Verify getCardsByArchetype returns ≥1 for each archetype present
+    for (const et of present) {
       expect(getCardsByArchetype(et).length).toBeGreaterThanOrEqual(1);
     }
   });
@@ -61,10 +74,16 @@ describe("card catalog", () => {
 
     const tampered = { ...json, cards: [...json.cards] };
     delete tampered.cards[0].id;
-    fs.writeFileSync(path, JSON.stringify(tampered, null, 2));
+    const tamperedStr = JSON.stringify(tampered, null, 2);
 
-    expect(() => loadCatalog()).toThrow();
+    try {
+      fs.writeFileSync(path, tamperedStr);
+      resetCatalogCache();
 
-    fs.writeFileSync(path, original);
+      expect(() => loadCatalog()).toThrow(/validation failed/i);
+    } finally {
+      // Always restore, even if the test fails
+      fs.writeFileSync(path, original);
+    }
   });
 });
