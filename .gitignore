@@ -6,17 +6,15 @@ node_modules/
 
 # OS
 .DS_Store
+~/
 
 # Secrets
 .env
 
-# Agent skills (local-only)
+# Agent / tooling (local-only, not for repo)
 .agents/
-
-# Nested external repo
-pi-vs-cc/
-
-# Tooling / Agent
+.claude/
 .sisyphus/
 .codegraph/
 AGENTS.md
+justfile
