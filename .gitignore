@@ -11,7 +11,7 @@ node_modules/
 # Secrets
 .env
 
-# Agent / tooling (local-only, not for repo)
+# Agent 
 .agents/
 .claude/
 .sisyphus/
