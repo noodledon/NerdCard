@@ -11,7 +11,7 @@ export type DeckType = (typeof DeckType)[number];
 export const BaseDomain = ['rational', 'poly', 'trig', 'exp', 'log'] as const;
 export type BaseDomain = (typeof BaseDomain)[number];
 
-export const Phase = ['waiting', 'draw', 'play', 'defense', 'resolution', 'game_over'] as const;
+export const Phase = ['waiting', 'construction', 'draw', 'play', 'defense', 'resolution', 'gameOver'] as const;
 export type Phase = (typeof Phase)[number];
 
 export const Rarity = ['common', 'rare', 'epic', 'legendary'] as const;
@@ -86,7 +86,9 @@ export interface PlayerState {
 
 export interface GameRoomState {
   phase: Phase;
-  currentTurn: number;
+  currentTurnPlayerId: string;
+  turnIndex: number;
+  turnDeadline: number;
   consecutive_no_eval_turns: number;
   global_no_eval_turns: number;
   variable_isolation_timers: Record<string, number>;

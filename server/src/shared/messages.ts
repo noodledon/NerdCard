@@ -3,69 +3,69 @@ import { type Board, type Card, type DeckType, type EffectType, type TargetRules
 
 export type TargetKind = TargetRules['scope'];
 
-const BuildFunctionSchema = z.object({
+export const BuildFunctionSchema = z.object({
   type: z.literal('build_function'),
-  boardId: z.string().optional(),
-  expression: z.string().max(500),
-  variableIds: z.array(z.number()),
-  numberCardIds: z.array(z.string()),
+  boardId: z.string().min(1).max(100),
+  expression: z.string().min(1).max(500),
+  variableIds: z.array(z.number().int()).default([]),
+  numberCardIds: z.array(z.string()).default([]),
 });
 
-const PlayCardSchema = z.object({
+export const PlayCardSchema = z.object({
   type: z.literal('play_card'),
   cardId: z.string(),
   target: z
     .object({
-      kind: z.enum(['self', 'opp', 'self_board', 'opp_board', 'global']),
+      kind: z.enum(['self', 'opp', 'self_board', 'opp_board', 'card', 'global', 'none']),
       id: z.string().optional(),
     })
-    .optional(),
+    .default({ kind: 'none' }),
   numberFactorCardIds: z.array(z.string()).optional(),
 });
 
-const DrawCardsDeckChoiceSchema = z.object({
+export const DrawCardsDeckChoiceSchema = z.object({
   deck: z.enum(['fcc', 'number', 'action']),
-  count: z.number(),
+  count: z.number().int().min(1).max(2),
 });
 
-const DrawCardsSchema = z.object({
+export const DrawCardsSchema = z.object({
   type: z.literal('draw_cards'),
-  deckChoices: z.array(DrawCardsDeckChoiceSchema),
+  deckChoices: z.array(DrawCardsDeckChoiceSchema).min(1).max(2),
 });
 
-const SetTrapSchema = z.object({
+export const SetTrapSchema = z.object({
   type: z.literal('set_trap'),
   cardId: z.string(),
   trigger: z.enum(['on_attack', 'on_eval', 'on_force_eval']),
 });
 
-const EvalPointSchema = z.object({
-  variable: z.string(),
-  value: z.number(),
+export const PlayDefenseSchema = z.object({
+  type: z.literal('play_defense'),
+  cardId: z.string(),
+  targetTriggerId: z.string(),
 });
 
-const EvalFunctionSchema = z.object({
+export const EvalFunctionSchema = z.object({
   type: z.literal('eval_function'),
   boardId: z.string(),
-  evalPoint: EvalPointSchema.optional(),
+  variableValueCardId: z.string(),
 });
 
-const ForceEvalSchema = z.object({
+export const ForceEvalSchema = z.object({
   type: z.literal('force_eval'),
-  boardIds: z.array(z.string()),
+  variableValueCardId: z.string(),
 });
 
-const EndTurnSchema = z.object({
+export const EndTurnSchema = z.object({
   type: z.literal('end_turn'),
 });
 
-const ReconnectSchema = z.object({
-  type: z.literal('reconnect'),
-  sessionId: z.string(),
+export const ReadyInstSchema = z.object({
+  type: z.literal('ready_inst'),
 });
 
-const LeaveSchema = z.object({
-  type: z.literal('leave'),
+export const LeaveRoomSchema = z.object({
+  type: z.literal('leave_room'),
 });
 
 export const ClientMessage = z.discriminatedUnion('type', [
@@ -73,11 +73,12 @@ export const ClientMessage = z.discriminatedUnion('type', [
   PlayCardSchema,
   DrawCardsSchema,
   SetTrapSchema,
+  PlayDefenseSchema,
   EvalFunctionSchema,
   ForceEvalSchema,
   EndTurnSchema,
-  ReconnectSchema,
-  LeaveSchema,
+  ReadyInstSchema,
+  LeaveRoomSchema,
 ]);
 
 export type ClientMessage = z.infer<typeof ClientMessage>;

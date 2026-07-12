@@ -30,6 +30,10 @@ export class PhaseController {
     return result;
   }
 
+  get phase(): FSMPhase {
+    return this.fsm.state.phase;
+  }
+
   tick(now = Date.now()): FSMEvent[] {
     const events = this.fsm.tick(now);
     this.mirror();

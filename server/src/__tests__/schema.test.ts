@@ -103,7 +103,7 @@ describe('GameRoomState', () => {
   it('instantiates with defaults', () => {
     const state = new GameRoomState();
     expect(state.phase).toBe('waiting');
-    expect(state.currentTurn).toBe('');
+    expect(state.currentTurnPlayerId).toBe('');
     expect(state.turnDeadline).toBe(0);
     expect(state.turnIndex).toBe(0);
     expect(state.roundNumber).toBe(0);
@@ -221,7 +221,7 @@ describe('round-trip serialization', () => {
   it('GameRoomState encodes/decodes string expression fields intact', () => {
     const state = new GameRoomState();
     state.phase = 'play';
-    state.currentTurn = 'sessA';
+    state.currentTurnPlayerId = 'sessA';
     state.turnDeadline = Date.now() + 30000;
     state.turnIndex = 4;
     state.consecutive_no_eval_turns = 1;
@@ -270,7 +270,7 @@ describe('round-trip serialization', () => {
 
     // Verify root fields
     expect(decoded.phase).toBe('play');
-    expect(decoded.currentTurn).toBe('sessA');
+    expect(decoded.currentTurnPlayerId).toBe('sessA');
     expect(decoded.turnIndex).toBe(4);
     expect(decoded.consecutive_no_eval_turns).toBe(1);
     expect(decoded.global_no_eval_turns).toBe(3);

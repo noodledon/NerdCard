@@ -56,7 +56,12 @@ export class NerdiClashRoom extends ColyseusRoom {
 
     this.onMessage('ping', () => undefined);
     this.setSimulationInterval(() => {
-      if (this.phaseController) this.phaseController.tick(Date.now());
+      if (!this.phaseController) return;
+      const previousPhase = this.phaseController.phase;
+      this.phaseController.tick(Date.now());
+      if (previousPhase === Phase.resolution && this.phaseController.phase === Phase.draw) {
+        this.rotateTurnOwner();
+      }
     }, 250);
   }
 
@@ -76,6 +81,9 @@ export class NerdiClashRoom extends ColyseusRoom {
       player.sessionId = client.sessionId;
       player.displayName = joinOptions.displayName ?? client.sessionId;
       this.state.players.set(client.sessionId, player);
+      if (!this.state.currentTurnPlayerId) {
+        this.state.currentTurnPlayerId = client.sessionId;
+      }
     } else {
       player.isConnected = true;
       if (joinOptions.displayName) player.displayName = joinOptions.displayName;
@@ -132,6 +140,13 @@ export class NerdiClashRoom extends ColyseusRoom {
       }
     }
     if (allDisconnected) await this.disconnect();
+  }
+
+  private rotateTurnOwner(): void {
+    const playerIds = [...this.state.players.keys()];
+    if (playerIds.length !== 2) return;
+    const currentIndex = playerIds.indexOf(this.state.currentTurnPlayerId);
+    this.state.currentTurnPlayerId = playerIds[(currentIndex + 1) % playerIds.length] ?? playerIds[0];
   }
 
   private readJoinOptions(options: unknown): JoinOptions {

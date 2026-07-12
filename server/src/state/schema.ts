@@ -237,7 +237,7 @@ export class GameRoomState extends Schema {
   phase: string = 'waiting';
 
   @type('string')
-  currentTurn: string = '';
+  currentTurnPlayerId: string = '';
 
   @type('number')
   turnDeadline: number = 0;
