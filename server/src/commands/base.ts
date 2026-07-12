@@ -94,7 +94,7 @@ export interface CommandContext {
   state?: CommandState;
   evalEngine?: {
     evaluate(
-      player: CommandPlayer,
+      player: { expression: string },
       boardIndex: number,
       vvcValue: number,
     ): EvalEngineResult;

@@ -17,7 +17,7 @@ export class EvalCommand extends GameCommand<EvalPayload> {
     if (!board || !isBoardAlive(board)) return success({ fizzled: true });
     const engine = this.context()?.evalEngine;
     if (!engine) return failure('evaluation engine unavailable');
-    const result = engine.evaluate(player, boardIndex, vvc.value ?? 0);
+    const result = engine.evaluate({ expression: board.expression }, boardIndex, vvc.value ?? 0);
     if (result.undefined) {
       board.destroyed = true;
       board.isActive = false;
