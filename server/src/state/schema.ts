@@ -44,10 +44,17 @@ export class CardSchema extends Schema {
   cardType: string = ''; // "addTerm" | "offensive" | "shield" | "trap" | "theorem" | "derivative" | "addBoard" | "forceEval" | "eval" | "constant"
 
   @type('string')
+  subtype: string = '';
+
+  @type('string')
   domain: string = ''; // BaseDomain enum → string
 
   @type('string')
   numericValue: string = ''; // for Number cards: "pi", "sqrt(2)", "2"
+
+  /** Numeric VVC value when the card is a variable-value card. */
+  @type('number')
+  value: number = 0;
 
   @type('string')
   expressionPayload: string = ''; // FCC builder expression as math.js string
@@ -85,6 +92,16 @@ export class FunctionBoardSchema extends Schema {
 
   @type('boolean')
   isActive: boolean = true;
+}
+
+// ─── Bound factor ─────────────────────────────────────────────────────────────
+
+export class BoundFactorSchema extends Schema {
+  @type('string')
+  numberCardId: string = '';
+
+  @type('string')
+  spellId: string = '';
 }
 
 // ─── PlayerSchema ──────────────────────────────────────────────────────────────
@@ -174,6 +191,30 @@ export class PlayerSchema extends Schema {
 
   @type('boolean')
   hasUsedVariableThisConstruction: boolean = false;
+
+  /** Shared per-turn guard for offensive cards and traps. */
+  @type('boolean')
+  aggressiveActionUsedThisTurn: boolean = false;
+
+  /** Compatibility mirror used by the offensive command contract. */
+  @type('boolean')
+  offensivePlayedThisTurn: boolean = false;
+
+  /** At most one pending trap may be set for a player. */
+  @type('string')
+  trapCardId: string = '';
+
+  @type('string')
+  boundFactorNumberCardId: string = '';
+
+  @type('string')
+  boundFactorSpellId: string = '';
+
+  @type(BoundFactorSchema)
+  boundFactor: BoundFactorSchema = new BoundFactorSchema();
+
+  @type('boolean')
+  evaluatedThisTurn: boolean = false;
 }
 
 // ─── RoomConfigSchema ──────────────────────────────────────────────────────────
