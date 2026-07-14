@@ -215,6 +215,9 @@ export class PlayerSchema extends Schema {
 
   @type('boolean')
   evaluatedThisTurn: boolean = false;
+
+  @type('number')
+  actionsUsedThisTurn: number = 0;
 }
 
 // ─── RoomConfigSchema ──────────────────────────────────────────────────────────
@@ -241,6 +244,16 @@ export class GameRoomState extends Schema {
 
   @type('number')
   turnDeadline: number = 0;
+
+  @type('string')
+  pendingTriggerId: string = '';
+
+  @type('boolean')
+  defenseResponseUsed: boolean = false;
+
+  /** True while one force-evaluation resolution is pending for this turn. */
+  @type('boolean')
+  forceEvalRequested: boolean = false;
 
   @type('number')
   turnIndex: number = 0;

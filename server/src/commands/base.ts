@@ -34,14 +34,16 @@ export interface CommandBoard {
 
 export interface CardCollection extends Iterable<CommandCard> {
   length: number;
-  [index: number]: CommandCard;
+  [index: number]: CommandCard | undefined;
   push(card: CommandCard): number;
   splice(start: number, deleteCount?: number): CommandCard[];
+  pop(): CommandCard | undefined;
+  shift(): CommandCard | undefined;
 }
 
 export interface BoardCollection extends Iterable<CommandBoard> {
   length: number;
-  [index: number]: CommandBoard;
+  [index: number]: CommandBoard | undefined;
   push(board: CommandBoard): number;
 }
 
@@ -66,6 +68,7 @@ export interface CommandPlayer {
   boundFactorNumberCardId?: string;
   boundFactorSpellId?: string;
   evaluatedThisTurn?: boolean;
+  actionsUsedThisTurn?: number;
   artifactTheoremActive?: boolean;
   shield10?: number;
 }
@@ -80,6 +83,8 @@ export interface CommandState {
   phase?: string;
   players: PlayerMapLike;
   forceEvalRequested?: boolean;
+  pendingTriggerId?: string;
+  defenseResponseUsed?: boolean;
 }
 
 export interface EvalEngineResult {
@@ -100,6 +105,7 @@ export interface CommandContext {
     ): EvalEngineResult;
   };
   forceEval?(state: CommandState, nominatorId?: string): unknown;
+  emitGameEvent?(event: string, actorId: string, details?: Record<string, unknown>): void;
 }
 
 export abstract class GameCommand<Payload> extends Command<CommandState, Payload> {

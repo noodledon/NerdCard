@@ -13,8 +13,20 @@ export class ForceEvalCommand extends GameCommand<ForceEvalPayload> {
     if (!player) return failure('player not found');
     const card = requiredCard(player, cardId);
     if (isFailure(card)) return card;
+    if (card.cardType !== 'forceEval' && card.subtype !== 'force_eval') {
+      return failure('force evaluation card required');
+    }
+    if (state.forceEvalRequested) {
+      this.context()?.emitGameEvent?.('fizzle', playerId, {
+        source: 'force_eval',
+        cardId,
+        reason: 'already_resolved',
+      });
+      return success({ fizzled: true });
+    }
     state.forceEvalRequested = true;
     moveCardToGraveyard(player, cardId);
+    this.context()?.emitGameEvent?.('force_eval', playerId, { cardId });
     this.context()?.forceEval?.(state, playerId);
     return success();
   }

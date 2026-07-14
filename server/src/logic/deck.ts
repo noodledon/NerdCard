@@ -91,3 +91,41 @@ export class Deck {
     return [...this.cards];
   }
 }
+
+export interface MutableDeckZone<Card> {
+  length: number;
+  push(card: Card): number;
+  pop(): Card | undefined;
+  shift(): Card | undefined;
+  [index: number]: Card | undefined;
+}
+
+export type DrawFromDeckResult<Card> =
+  | { ok: true; card: Card }
+  | { ok: false; code: 'DECK_EMPTY' };
+
+/** Draw with deterministic injectable reshuffling when the draw pile is empty. */
+export function drawFromDeck<Card>(
+  deck: MutableDeckZone<Card>,
+  graveyard: MutableDeckZone<Card>,
+  rng: () => number = Math.random,
+): DrawFromDeckResult<Card> {
+  if (deck.length === 0) {
+    if (graveyard.length === 0) return { ok: false, code: 'DECK_EMPTY' };
+    let card = graveyard.shift();
+    while (card !== undefined) {
+      deck.push(card);
+      card = graveyard.shift();
+    }
+    for (let index = deck.length - 1; index > 0; index -= 1) {
+      const swapIndex = Math.floor(rng() * (index + 1));
+      const current = deck[index];
+      const swap = deck[swapIndex];
+      if (current === undefined || swap === undefined) continue;
+      deck[index] = swap;
+      deck[swapIndex] = current;
+    }
+  }
+  const card = deck.pop();
+  return card === undefined ? { ok: false, code: 'DECK_EMPTY' } : { ok: true, card };
+}

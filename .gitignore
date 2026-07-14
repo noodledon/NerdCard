@@ -4,6 +4,15 @@
 # Node
 node_modules/
 
+# Build output
+dist/
+
+# Logs
+*.log
+
+# Test coverage
+coverage/
+
 # OS
 .DS_Store
 ~/
@@ -11,7 +20,11 @@ node_modules/
 # Secrets
 .env
 
-# Agent 
+# Editor configs
+.vscode/
+.idea/
+
+# Agent/internal
 .agents/
 .claude/
 .sisyphus/

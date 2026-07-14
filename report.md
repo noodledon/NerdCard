@@ -93,6 +93,21 @@ Keeping these modules free of Colyseus imports allows deterministic unit tests a
 5. Add deck exhaustion, reconnect, fizzle, and force-evaluation edge-case handling.
 6. Add room integration tests around the normalized protocol.
 
+## Handler Completion Decisions
+
+The normalized protocol exposed several message types whose server-side command did not yet exist. The following minimal authoritative behaviors are used to complete the integration without inventing new client messages:
+
+- `build_function`: validates and records the construction submission through the FSM. During construction it writes the selected owned board expression only after domain validation succeeds. In-play function changes remain card effects rather than arbitrary direct rebuilds.
+- `play_defense`: validates that a defense or trap card is in the responding player's hand and that it references the pending trigger. Only one reactive card may be used per trigger. The response then closes the defense window into resolution. Detailed card-specific counter math remains catalog-driven command work.
+- `ready_inst`: is an acknowledged lifecycle intent with no schema mutation. It exists so a client can confirm readiness without bypassing validation.
+- `force_eval`: the VVC identity is required by the network protocol, and the player must also hold the catalog's Force Evaluation card (`cardType === "forceEval"` or equivalent subtype). The room dispatch adapter selects that card and supplies both identities to the force-evaluation command.
+- `end_turn`: transitions `play -> resolution -> draw`, resets the active player's per-turn aggressive-action and evaluation flags, and rotates the active turn owner exactly once.
+- Command outcomes are emitted as `game_event` from the room dispatch boundary, while handler validation failures remain requester-only `error` messages.
+
+These are deliberately narrow integration rules. Future card-specific resolution work can extend commands without changing the canonical protocol again.
+
+The gameplay explainer resolves the fizzle discrepancy in favor of the current v1 behavior: a card whose target is already destroyed fizzles and goes to the graveyard. The older unresolved-card-return wording in the Wave 4 draft is not used.
+
 ## Validation At This Checkpoint
 
 After the protocol normalization, the server passes:

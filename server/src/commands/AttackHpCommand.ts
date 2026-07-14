@@ -43,6 +43,12 @@ export class AttackHpCommand extends GameCommand<AttackHpPayload> {
     const targetBoard = findBoard(target, payload.targetBoardId);
     if (payload.targetBoardId && !isBoardAlive(targetBoard)) {
       moveCardToGraveyard(player, payload.cardId);
+      this.context()?.emitGameEvent?.('fizzle', payload.playerId, {
+        source: 'play_card',
+        cardId: payload.cardId,
+        targetId: payload.targetBoardId,
+        reason: 'target_gone',
+      });
       return success({ fizzled: true, boardDestroyed: false });
     }
 
@@ -57,6 +63,12 @@ export class AttackHpCommand extends GameCommand<AttackHpPayload> {
     target.hp10 = Math.max(0, target.hp10 - damage10);
     markAggressiveActionUsed(player);
     moveCardToGraveyard(player, payload.cardId);
+    this.context()?.emitGameEvent?.('play_card', payload.playerId, {
+      cardId: payload.cardId,
+      targetPlayerId: payload.targetPlayerId,
+      targetBoardId: payload.targetBoardId,
+      damage10,
+    });
     return success({ damage10 });
   }
 }
