@@ -12,7 +12,10 @@ export class EvalCommand extends GameCommand<EvalPayload> {
     const player = getPlayer(state, playerId);
     if (!player) return failure('player not found');
     const vvc = findCard(player, vvcCardId);
-    if (!vvc || vvc.subtype !== 'variable-value') return failure('valid variable-value card required');
+    // Catalog VVCs (server/src/data/card-catalog.json, ids vvc-1..vvc-5) carry
+    // subtype "Anchor" — this previously compared against the non-existent
+    // string 'variable-value', making eval_function unreachable. See report.md.
+    if (!vvc || vvc.subtype !== 'Anchor') return failure('valid variable-value card required');
     const board = findBoard(player, undefined, boardIndex);
     if (!board || !isBoardAlive(board)) {
       this.context()?.emitGameEvent?.('fizzle', playerId, {

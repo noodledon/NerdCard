@@ -1,6 +1,127 @@
-[gd_scene format=3 uid="uid://c0mhp8gobfd8s"]
+[gd_scene load_steps=3 format=3 uid="uid://c0mhp8gobfd8s"]
 
 [ext_resource type="Script" uid="uid://ut2fnjr8ekik" path="res://game.gd" id="1_80nbo"]
+[ext_resource type="PackedScene" uid="uid://dh8k2q1p3m4tn" path="res://scenes/PlayerPanel.tscn" id="2_panel"]
 
 [node name="Game" type="Node2D" unique_id=1929820718]
 script = ExtResource("1_80nbo")
+
+[node name="CanvasLayer" type="CanvasLayer" parent="."]
+
+[node name="MarginContainer" type="MarginContainer" parent="CanvasLayer"]
+anchors_preset = 15
+anchor_right = 1.0
+anchor_bottom = 1.0
+grow_horizontal = 2
+grow_vertical = 2
+theme_override_constants/margin_left = 16
+theme_override_constants/margin_top = 16
+theme_override_constants/margin_right = 16
+theme_override_constants/margin_bottom = 16
+
+[node name="VBoxContainer" type="VBoxContainer" parent="CanvasLayer/MarginContainer"]
+layout_mode = 2
+theme_override_constants/separation = 12
+
+[node name="ConnectRow" type="HBoxContainer" parent="CanvasLayer/MarginContainer/VBoxContainer"]
+layout_mode = 2
+theme_override_constants/separation = 8
+
+[node name="IpLineEdit" type="LineEdit" parent="CanvasLayer/MarginContainer/VBoxContainer/ConnectRow"]
+layout_mode = 2
+size_flags_horizontal = 3
+text = "ws://localhost:2567"
+placeholder_text = "ws://localhost:2567"
+
+[node name="ConnectButton" type="Button" parent="CanvasLayer/MarginContainer/VBoxContainer/ConnectRow"]
+layout_mode = 2
+text = "Connect"
+
+[node name="StatusLabel" type="Label" parent="CanvasLayer/MarginContainer/VBoxContainer/ConnectRow"]
+layout_mode = 2
+text = "Disconnected"
+
+[node name="PhaseTurnRow" type="HBoxContainer" parent="CanvasLayer/MarginContainer/VBoxContainer"]
+layout_mode = 2
+theme_override_constants/separation = 16
+
+[node name="TurnPhaseLabel" type="Label" parent="CanvasLayer/MarginContainer/VBoxContainer/PhaseTurnRow"]
+layout_mode = 2
+text = "Phase: waiting"
+
+[node name="TurnOwnerLabel" type="Label" parent="CanvasLayer/MarginContainer/VBoxContainer/PhaseTurnRow"]
+layout_mode = 2
+text = "Turn: -"
+
+[node name="OpponentPanel" parent="CanvasLayer/MarginContainer/VBoxContainer" instance=ExtResource("2_panel")]
+layout_mode = 2
+
+[node name="BoardArea" type="Label" parent="CanvasLayer/MarginContainer/VBoxContainer"]
+layout_mode = 2
+text = "--------------------------------"
+horizontal_alignment = 1
+
+[node name="LocalPanel" parent="CanvasLayer/MarginContainer/VBoxContainer" instance=ExtResource("2_panel")]
+layout_mode = 2
+
+[node name="HandVBox" type="HBoxContainer" parent="CanvasLayer/MarginContainer/VBoxContainer"]
+layout_mode = 2
+theme_override_constants/separation = 8
+
+[node name="DeckButtons" type="HBoxContainer" parent="CanvasLayer/MarginContainer/VBoxContainer"]
+layout_mode = 2
+theme_override_constants/separation = 8
+
+[node name="DrawFCCButton" type="Button" parent="CanvasLayer/MarginContainer/VBoxContainer/DeckButtons"]
+layout_mode = 2
+text = "Draw FCC"
+
+[node name="DrawNumberButton" type="Button" parent="CanvasLayer/MarginContainer/VBoxContainer/DeckButtons"]
+layout_mode = 2
+text = "Draw Number"
+
+[node name="DrawActionButton" type="Button" parent="CanvasLayer/MarginContainer/VBoxContainer/DeckButtons"]
+layout_mode = 2
+text = "Draw Action"
+
+[node name="DeckCountLabel" type="Label" parent="CanvasLayer/MarginContainer/VBoxContainer/DeckButtons"]
+layout_mode = 2
+text = "FCC: 0 | Num: 0 | Act: 0"
+
+[node name="ActionButtons" type="HBoxContainer" parent="CanvasLayer/MarginContainer/VBoxContainer"]
+layout_mode = 2
+theme_override_constants/separation = 8
+
+[node name="EndTurnButton" type="Button" parent="CanvasLayer/MarginContainer/VBoxContainer/ActionButtons"]
+layout_mode = 2
+text = "End Turn"
+
+[node name="EvaluateButton" type="Button" parent="CanvasLayer/MarginContainer/VBoxContainer/ActionButtons"]
+layout_mode = 2
+text = "Evaluate"
+visible = false
+
+[node name="ErrorModal" type="Panel" parent="CanvasLayer/MarginContainer/VBoxContainer"]
+visible = false
+layout_mode = 2
+
+[node name="ErrorLabel" type="Label" parent="CanvasLayer/MarginContainer/VBoxContainer/ErrorModal"]
+layout_mode = 0
+offset_left = 8.0
+offset_top = 8.0
+offset_right = -8.0
+offset_bottom = -8.0
+text = ""
+autowrap_mode = 3
+
+[node name="ErrorDismissTimer" type="Timer" parent="CanvasLayer/MarginContainer/VBoxContainer/ErrorModal"]
+wait_time = 3.0
+one_shot = true
+
+[connection signal="pressed" from="CanvasLayer/MarginContainer/VBoxContainer/ConnectRow/ConnectButton" to="." method="_on_connect_button_pressed"]
+[connection signal="pressed" from="CanvasLayer/MarginContainer/VBoxContainer/DeckButtons/DrawFCCButton" to="." method="_on_draw_fcc_pressed"]
+[connection signal="pressed" from="CanvasLayer/MarginContainer/VBoxContainer/DeckButtons/DrawNumberButton" to="." method="_on_draw_number_pressed"]
+[connection signal="pressed" from="CanvasLayer/MarginContainer/VBoxContainer/DeckButtons/DrawActionButton" to="." method="_on_draw_action_pressed"]
+[connection signal="pressed" from="CanvasLayer/MarginContainer/VBoxContainer/ActionButtons/EndTurnButton" to="." method="_on_end_turn_pressed"]
+[connection signal="pressed" from="CanvasLayer/MarginContainer/VBoxContainer/ActionButtons/EvaluateButton" to="." method="_on_evaluate_pressed"]
+[connection signal="timeout" from="CanvasLayer/MarginContainer/VBoxContainer/ErrorModal/ErrorDismissTimer" to="." method="_on_error_dismiss_timeout"]

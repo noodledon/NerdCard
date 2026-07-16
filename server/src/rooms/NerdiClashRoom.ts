@@ -1,5 +1,6 @@
 import colyseus from 'colyseus';
-import { GameRoomState, PlayerSchema } from '../state/schema.js';
+import { GameRoomState, PlayerSchema, catalogCardToSchema, shuffleArraySchema } from '../state/schema.js';
+import { loadCatalog } from '../data/load-catalog.js';
 import { Phase, type Phase as FSMPhase } from '../logic/fsm.js';
 import { PhaseController } from './phaseController.js';
 import { CommandDispatcher, type CommandIntent } from '../commands/CommandDispatcher.js';
@@ -94,6 +95,22 @@ export class NerdiClashRoom extends ColyseusRoom {
       player = new PlayerSchema();
       player.sessionId = client.sessionId;
       player.displayName = joinOptions.displayName ?? client.sessionId;
+
+      const catalog = loadCatalog();
+      for (const card of catalog) {
+        const cardSchema = catalogCardToSchema(card);
+        if (card.deck === 'fcc') player.deckFCC.push(cardSchema);
+        else if (card.deck === 'number') player.deckNumber.push(cardSchema);
+        else if (card.deck === 'action') player.deckAction.push(cardSchema);
+      }
+      shuffleArraySchema(player.deckFCC);
+      shuffleArraySchema(player.deckNumber);
+      shuffleArraySchema(player.deckAction);
+
+      this.state.deckCounts.set(`${client.sessionId}_fcc`, player.deckFCC.length);
+      this.state.deckCounts.set(`${client.sessionId}_number`, player.deckNumber.length);
+      this.state.deckCounts.set(`${client.sessionId}_action`, player.deckAction.length);
+
       this.state.players.set(client.sessionId, player);
       if (!this.state.currentTurnPlayerId) {
         this.state.currentTurnPlayerId = client.sessionId;
@@ -212,7 +229,7 @@ export class NerdiClashRoom extends ColyseusRoom {
       }
       case 'force_eval': {
         const player = this.state.players.get(playerId);
-        const forceCard = player ? [...player.hand].find((card) => card?.cardType === 'forceEval' || card?.subtype === 'force_eval') : undefined;
+        const forceCard = player ? [...player.hand].find((card) => card?.cardType === 'forceEval' || card?.subtype === 'Force Evaluation') : undefined;
         return forceCard ? { intent: 'force-eval', payload: { playerId, cardId: forceCard.id } } : undefined;
       }
       case 'play_card': {

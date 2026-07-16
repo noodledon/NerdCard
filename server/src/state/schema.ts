@@ -26,6 +26,7 @@
  */
 
 import { Schema, type, MapSchema, ArraySchema, filter } from '@colyseus/schema';
+import type { Card } from '../shared/types.js';
 
 /** Minimal client shape needed by @filter() callbacks in schema v2.0.37.
  *  (The full `ClientWithSessionId` type is not re-exported from the package index.) */
@@ -64,6 +65,44 @@ export class CardSchema extends Schema {
 
   @type('boolean')
   isFlipped: boolean = false;
+}
+
+function toCamelCase(str: string): string {
+  return str.replace(/_([a-z])/g, (_, letter) => letter.toUpperCase());
+}
+
+/** Convert a catalog Card (shared/types) into a Colyseus CardSchema.
+ *  Callers MUST shuffle the resulting deck ArraySchema before gameplay. */
+export function catalogCardToSchema(card: Card): CardSchema {
+  const schema = new CardSchema();
+  schema.id = card.id;
+  schema.deckType = card.type;
+  schema.cardType = toCamelCase(card.effectType);
+  schema.subtype = card.subtype;
+
+  const effectValue = card.effectParams.value;
+  if (typeof effectValue === 'number') {
+    schema.value = effectValue;
+  } else if (typeof effectValue === 'string') {
+    schema.numericValue = effectValue;
+  }
+
+  const costExpression = card.effectParams.costExpression;
+  if (typeof costExpression === 'string') {
+    schema.expressionPayload = costExpression;
+  }
+
+  return schema;
+}
+
+/** Fisher-Yates shuffle for ArraySchema (mutates in-place). */
+export function shuffleArraySchema<T>(arr: ArraySchema<T>, rng: () => number = Math.random): void {
+  for (let i = arr.length - 1; i > 0; i--) {
+    const j = Math.floor(rng() * (i + 1));
+    const temp = arr[i];
+    arr[i] = arr[j]!;
+    arr[j] = temp!;
+  }
 }
 
 // ─── FunctionBoardSchema ───────────────────────────────────────────────────────

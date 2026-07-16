@@ -117,3 +117,134 @@ After the protocol normalization, the server passes:
 140 tests passed
 npm run typecheck passed
 ```
+
+## Wave 5 Inconsistencies Found (Godot Client)
+
+Wave 5 wires the existing Godot UI (`game.tscn`/`game.gd`, `scenes/PlayerPanel.tscn`,
+`scripts/GameModel.gd`, `scripts/ConnectionManager.gd`, `scripts/CardButton.gd`,
+`scripts/PlayerPanel.gd`) to the server contract established through Wave 4. The
+wave-5 task file (`.sisyphus/drafts/wave-5-tasks.md`) and the master plan assume
+several server-side capabilities that do not exist as written. All were verified
+against the current on-disk server source via CodeGraph before compensating
+client-side; none required a server change to keep Wave 5 unblocked, but each is
+flagged below for future server work.
+
+### 1. No server-side JSON bridge for the raw-WS fallback (T5 debt, never paid)
+
+`client/scripts/colyseus-verify.md` records `SDK-BROKEN-FALLBACK`: the official
+`colyseus-godot` SDK repository is gone (404), so the raw `WebSocketPeer` fallback
+(`raw-ws-client.gd`) is the only viable client transport. That report explicitly
+flags "Required Wave 2 server-side work: ... add a JSON text-frame bridge to
+`server/src/app.config.ts`". Grepping the full server source turns up no such
+bridge — `app.config.ts` only registers the native Colyseus room; Colyseus's
+default transport speaks its own binary/msgpack room protocol, not plain JSON
+text frames.
+
+**Resolution used for Wave 5**: `ConnectionManager.gd` is written to speak the
+exact wire shapes the server already defines in `shared/messages.ts`
+(`ClientMessage`/`ServerMessage`, `state_snapshot`, `error`), plus a `join_room`/
+`joined` handshake pair that has no server-side equivalent yet (see #2). This
+makes the client's half of the contract concrete and ready to bridge, but the
+Wave 5 QA scripts that assume a live server round-trip (T18–T20 "happy path"
+scenarios) cannot pass end-to-end until the bridge is built. This is scoped as
+follow-up server work, not a Wave 5 blocker.
+
+### 2. No join/session-identity message exists in the protocol
+
+The ten canonical `ClientMessage` types (`build_function`, `play_card`,
+`draw_cards`, `set_trap`, `play_defense`, `eval_function`, `force_eval`,
+`end_turn`, `ready_inst`, `leave_room`) and eight `ServerMessage` types
+(`state_snapshot`, `phase_change`, `card_drawn`, `board_built`, `eval_result`,
+`trap_triggered`, `game_over`, `error`) never include a join handshake or a way
+for the client to learn its own `sessionId` / seat ("p1"/"p2"). Colyseus's own
+`onJoin`/`room.sessionId` mechanics normally cover this, but the raw-WS fallback
+bypasses that entirely.
+
+**Resolution used for Wave 5**: `ConnectionManager.gd` defines and sends
+`{"type": "join_room", "room": "nerdiclash"}` and expects
+`{"type": "joined", "sessionId": ..., "role": ...}` in response. This is
+client-only scaffolding today; the eventual JSON bridge (item #1) needs to emit
+`joined` after a successful Colyseus `onJoin`.
+
+### 3. `has_eval_legal` / `draws_this_turn` do not exist anywhere on the server
+
+T20's intent table and acceptance criteria assume the server sets a boolean
+`GameModel.local_player.has_eval_legal` to gate the Evaluate button, and a
+counter `local.draws_this_turn` to gate the three draw buttons at `>= 2`.
+Neither field exists in `PlayerSchema` (`server/src/state/schema.ts`), the
+protocol (`shared/messages.ts`), or any command
+(`server/src/commands/*.ts`) — confirmed via CodeGraph search across the
+entire server source.
+
+**Resolution used for Wave 5**: `game.gd` derives an equivalent client-side
+signal instead of trusting a nonexistent server flag:
+- Evaluate button visibility is derived from whether the local player has at
+  least one board with `isActive == true` (matching `EvalCommand`'s actual
+  `isBoardAlive` check), gated further by turn ownership, phase, and having a
+  VVC selected.
+- Draw buttons are gated only on `phase == "draw"` and turn ownership, since
+  the server's `draw_cards` handler doesn't track a per-turn draw counter either
+  (see #4) — it validates the whole batch atomically instead.
+
+These are UX-polish approximations per the wave-5 plan's own guidance
+("disabled conditions ... MAY be incomplete; server still rejects"); the server
+remains authoritative.
+
+### 4. `draw_cards` requires an exact-2-card batch payload, not one card per click
+
+T20's intent table specifies three independent mini-buttons ("Draw FCC" /
+"Draw Number" / "Draw Action"), each sending `draw_cards` with a single-card
+payload `{deckType: "fcc"}`. The actual server contract
+(`DrawCardsSchema` in `shared/messages.ts`, enforced again in
+`rooms/handlers.ts drawChoiceTotal()`) requires
+`deckChoices: [{deck, count}]` where the **sum of all `count` values across the
+array must equal exactly 2**. A `{deckType: "fcc"}`-shaped single-card message
+would fail Zod validation (wrong field name: `deckType` vs `deck`) and then fail
+the exact-total-2 check even if the field name were fixed.
+
+**Resolution used for Wave 5**: each draw button now sends one
+`deckChoices: [{"deck": "<fcc|number|action>", "count": 2}]` message — a full,
+valid batch draw of 2 cards from that single deck, matching what the handler
+actually accepts. Mixed-deck draws (e.g. 1 FCC + 1 Number) are not exposed in
+the UI; the wave-5 plan didn't call for that either.
+
+### 5. `EvalCommand` checks a VVC subtype string (`'variable-value'`) that no catalog card has
+
+`server/src/commands/EvalCommand.ts:15` rejects any card whose
+`subtype !== 'variable-value'` as an invalid VVC. The actual catalog
+(`server/src/data/card-catalog.json`, cards `vvc-1` through `vvc-5`) sets
+`"subtype": "Anchor"` for every Variable Value Card. As written, `EvalCommand`
+can never accept a real VVC from the deployed catalog — `eval_function` is
+unreachable in practice. This is a genuine server-side bug, not a client
+concern, but it directly affects how the Wave 5 client must select a VVC
+before sending `eval_function`.
+
+**Status: FIXED** — Changed `EvalCommand.ts:18` from `'variable-value'` to `'Anchor'` to match the catalog. The `eval_function` intent is now reachable with real VVC cards.
+
+**Related fix**: `ForceEvalCommand.ts:16` had the same class of bug, checking `card.subtype !== 'force_eval'` when the catalog uses `"subtype": "Force Evaluation"` (line 198). Fixed to `'Force Evaluation'` so the Showdown card works correctly.
+
+### 6. `deckCounts` (public deck-size mirror) is never populated by any command
+
+`GameRoomState.deckCounts` (`MapSchema<number>`) is documented as "Public
+mirror — opponents derive board/hand size from this" pattern used elsewhere
+(`handCount`, `boardCount`), and T19's acceptance criteria expect
+`"FCC: %d | Num: %d | Act: %d"` to come from `state.decks` counts. Grepping the
+full server source shows `deckCounts` is set only in a schema unit test —
+no room, command, or handler ever calls `.set()` on it. It stays `{}` for the
+lifetime of a real game.
+
+**Status: FIXED** — `NerdiClashRoom.ts:onJoin()` now populates `deckFCC`, `deckNumber`, and `deckAction` from the 30-card catalog using the new `catalogCardToSchema()` helper, shuffles each deck with `shuffleArraySchema()`, and initializes `deckCounts` for the joining player. Players joining an existing game now have seeded decks instead of empty ones.
+
+## Validation At This Checkpoint (Wave 5)
+
+- `godot --headless --path client --quit` boots the full project (autoloads +
+  main scene `game.tscn`) with zero script/parse/compile errors.
+- Server suite: `npx tsc --noEmit` passes; `npx vitest run` → 20 test files / 160 tests passed.
+- Three server bugs from the Wave 5 inconsistency report have been fixed:
+  1. `EvalCommand.ts` VVC subtype check (`'variable-value'` → `'Anchor'`)
+  2. `ForceEvalCommand.ts` subtype check (`'force_eval'` → `'Force Evaluation'`)
+  3. `NerdiClashRoom.ts:onJoin()` now seeds player decks from the catalog and initializes `deckCounts`
+- Items #1–#4 from the Wave 5 inconsistency list remain client-side compensations
+  (JSON bridge, join protocol, `has_eval_legal`/`draws_this_turn`, draw batch shape).
+  These are architectural gaps, not bugs — they require design decisions before
+  implementation.

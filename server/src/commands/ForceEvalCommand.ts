@@ -13,7 +13,7 @@ export class ForceEvalCommand extends GameCommand<ForceEvalPayload> {
     if (!player) return failure('player not found');
     const card = requiredCard(player, cardId);
     if (isFailure(card)) return card;
-    if (card.cardType !== 'forceEval' && card.subtype !== 'force_eval') {
+    if (card.cardType !== 'forceEval' && card.subtype !== 'Force Evaluation') {
       return failure('force evaluation card required');
     }
     if (state.forceEvalRequested) {

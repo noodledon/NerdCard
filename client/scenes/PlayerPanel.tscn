@@ -1,0 +1,60 @@
+[gd_scene load_steps=2 format=3 uid="uid://dh8k2q1p3m4tn"]
+
+[ext_resource type="Script" path="res://scripts/PlayerPanel.gd" id="1_panel"]
+
+[node name="PlayerPanel" type="VBoxContainer"]
+script = ExtResource("1_panel")
+
+[node name="NameLabel" type="Label" parent="."]
+layout_mode = 2
+text = "Player"
+
+[node name="HPLabel" type="Label" parent="."]
+layout_mode = 2
+text = "0"
+
+[node name="TrapSlotIndicator" type="Label" parent="."]
+layout_mode = 2
+text = "Trap: empty"
+
+[node name="FunctionBoardPanel" type="VBoxContainer" parent="."]
+layout_mode = 2
+
+[node name="FunctionSlot0" type="HBoxContainer" parent="FunctionBoardPanel"]
+layout_mode = 2
+
+[node name="ExprLabel" type="Label" parent="FunctionBoardPanel/FunctionSlot0"]
+layout_mode = 2
+text = "(empty)"
+
+[node name="DomainBadge" type="Label" parent="FunctionBoardPanel/FunctionSlot0"]
+layout_mode = 2
+
+[node name="DepthBadge" type="Label" parent="FunctionBoardPanel/FunctionSlot0"]
+layout_mode = 2
+
+[node name="FunctionSlot1" type="HBoxContainer" parent="FunctionBoardPanel"]
+layout_mode = 2
+
+[node name="ExprLabel" type="Label" parent="FunctionBoardPanel/FunctionSlot1"]
+layout_mode = 2
+text = "(empty)"
+
+[node name="DomainBadge" type="Label" parent="FunctionBoardPanel/FunctionSlot1"]
+layout_mode = 2
+
+[node name="DepthBadge" type="Label" parent="FunctionBoardPanel/FunctionSlot1"]
+layout_mode = 2
+
+[node name="FunctionSlot2" type="HBoxContainer" parent="FunctionBoardPanel"]
+layout_mode = 2
+
+[node name="ExprLabel" type="Label" parent="FunctionBoardPanel/FunctionSlot2"]
+layout_mode = 2
+text = "(empty)"
+
+[node name="DomainBadge" type="Label" parent="FunctionBoardPanel/FunctionSlot2"]
+layout_mode = 2
+
+[node name="DepthBadge" type="Label" parent="FunctionBoardPanel/FunctionSlot2"]
+layout_mode = 2

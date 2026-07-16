@@ -11,8 +11,13 @@ config_version=5
 [application]
 
 config/name="NerdCard"
-run/main_scene="res://Main.tscn"
+run/main_scene="res://game.tscn"
 config/features=PackedStringArray("4.7")
+
+[autoload]
+
+GameModel="*res://scripts/GameModel.gd"
+ConnectionManager="*res://scripts/ConnectionManager.gd"
 
 [display]
 

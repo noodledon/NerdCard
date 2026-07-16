@@ -1,67 +1,22 @@
-## Colyseus Connection wrapper.
-## Attempts to use the official Colyseus Godot SDK.
-## If the SDK is unavailable (class not found), this script will
-## fall back to raw WebSocket communication via raw-ws-client.gd.
+## Colyseus SDK connection path — INACTIVE.
 ##
-## NOTE: The colyseus-godot SDK repository is currently unavailable.
-## This script is kept as the intended SDK path; see raw-ws-client.gd
-## for the active fallback implementation.
+## T5 verification (see scripts/colyseus-verify.md) found the official
+## colyseus-godot SDK repository unavailable (404) under Godot 4.7. The
+## Colyseus class is therefore never declared in this project, and any
+## script that references it directly fails to parse.
+##
+## Per Wave 5 (T18) "must not" rules, the unused branch must not be
+## committed as dead/broken code. This file is intentionally stubbed to a
+## TODO rather than referencing the undefined `Colyseus` identifier, so it
+## parses cleanly while remaining a placeholder for a future SDK revival.
+##
+## The ACTIVE connection path is scripts/ConnectionManager.gd, which wraps
+## scripts/raw-ws-client.gd (RawWsClient) — see colyseus-verify.md for the
+## branch decision record.
+##
+## TODO(sdk-revival): if colyseus/colyseus-godot ever republishes a Godot 4.x
+## addon, restore an SDK-backed implementation here and flip
+## ConnectionManager's branch selection.
 
 extends Node
-class_name ColyseusConnection
-
-@export var endpoint: String = "ws://127.0.0.1:2567"
-@export var room_name: String = "nerdiclash"
-
-var _client: Variant = null
-var _room: Variant = null
-var _last_sdk_error: String = ""
-
-
-func _ready() -> void:
-	_connect_sdk()
-
-
-func _connect_sdk() -> void:
-	# Try to instantiate the Colyseus SDK Client class.
-	# If the SDK addon is not present, Godot will throw an error.
-	var sdk_available := ClassDB.class_exists("Colyseus")
-	if not sdk_available:
-		_last_sdk_error = "Colyseus SDK not found — falling back to raw WebSocket."
-		print("[ColyseusConnection] ", _last_sdk_error)
-		return
-
-	_client = Colyseus.Client.new(endpoint)
-	print("[ColyseusConnection] SDK Client created, endpoint=", endpoint)
-
-
-func join_room(name: String = "nerdiclash") -> int:
-	if _client == null:
-		_last_sdk_error = "Client not initialized. SDK may be unavailable."
-		return ERR_CANT_CONNECT
-
-	# Join the room via the SDK
-	_room = _client.join(name)
-	if _room == null:
-		_last_sdk_error = "Failed to join room '%s'" % name
-		print("[ColyseusConnection] ", _last_sdk_error)
-		return ERR_CANT_CONNECT
-
-	# Listen for state changes
-	_room.state_changed.connect(_on_state_change)
-	print("[ColyseusConnection] Joined room '", name, "' successfully.")
-	return OK
-
-
-func send_intent(intent: Dictionary) -> void:
-	if _room != null:
-		_room.send(intent)
-	else:
-		print("[ColyseusConnection] WARNING: Cannot send intent — room not joined.")
-
-
-func _on_state_change(patch: Dictionary) -> void:
-	# Minimal "dumb/blind" client: just print the patch.
-	# Wave 2+ will wire this to render updates.
-	print("[ColyseusConnection] State patch received:")
-	print(JSON.stringify(patch, "  "))
+class_name ColyseusConnectionStub
