@@ -1,6 +1,7 @@
 import colyseus from 'colyseus';
 import http from 'http';
 import { NerdiClashRoom } from './rooms/NerdiClashRoom.js';
+import { JsonBridgeServer } from './json-bridge.js';
 
 const { Server } = colyseus as unknown as {
   Server: new (opts?: Record<string, unknown>) => {
@@ -9,13 +10,12 @@ const { Server } = colyseus as unknown as {
   };
 };
 
-/**
- * App configuration for the Colyseus server.
- *
- * TODO: Register rooms and middleware here (Wave 2).
- */
-export function appConfig(httpServer: http.Server): { listen: (port: number) => void } {
+export function appConfig(httpServer: http.Server): { listen: (port: number) => void; jsonBridge: JsonBridgeServer } {
   const server = new Server({});
   server.define('nerdiclash', NerdiClashRoom);
-  return server;
+
+  const jsonBridge = new JsonBridgeServer();
+  jsonBridge.start(2568);
+
+  return { listen: (port: number) => server.listen(port), jsonBridge };
 }

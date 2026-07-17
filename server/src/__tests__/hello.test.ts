@@ -7,7 +7,7 @@ const { Server } = colyseus as unknown as { Server: new (opts?: Record<string, u
 
 describe('appConfig', () => {
   it('is a function that returns a Server instance', () => {
-    const mockServer = {} as http.Server;
+    const mockServer = { on: () => undefined, once: () => undefined } as unknown as http.Server;
     const result = appConfig(mockServer);
     expect(result).toHaveProperty('listen');
   });

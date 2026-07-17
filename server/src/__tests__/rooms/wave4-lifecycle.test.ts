@@ -1,5 +1,6 @@
 import { afterEach, describe, expect, it, vi } from 'vitest';
 import { NerdiClashRoom } from '../../rooms/NerdiClashRoom.js';
+import { NerdiClashGame } from '../../rooms/NerdiClashGame.js';
 import { GameRoomState, PlayerSchema } from '../../state/schema.js';
 
 type TestClient = {
@@ -32,6 +33,14 @@ function roomHarness() {
   state.players.set('p2', p2);
   const disconnect = vi.fn(async () => undefined);
   const room = Object.create(NerdiClashRoom.prototype) as unknown as TestRoom;
+  const game = new NerdiClashGame();
+  game.state.players.set('p1', p1);
+  game.state.players.set('p2', p2);
+  // Sync game state with room state for tests that modify room.state directly
+  game.state.phase = state.phase;
+  game.state.turnDeadline = state.turnDeadline;
+  game.state.turnIndex = state.turnIndex;
+  (room as unknown as { game: NerdiClashGame }).game = game;
   room.state = state;
   room.clients = { length: 1 };
   room.disconnect = disconnect;
@@ -83,8 +92,11 @@ describe('Wave 4 room lifecycle edges', () => {
   it('(f) sends the original defense deadline when a defender reconnects', async () => {
     const { room, p1 } = roomHarness();
     const events: Array<{ type: string; payload: unknown }> = [];
+    const game = (room as unknown as { game: NerdiClashGame }).game;
+    game.state.phase = 'defense';
+    game.state.turnDeadline = Date.now() + 5_000;
     room.state.phase = 'defense';
-    room.state.turnDeadline = Date.now() + 5_000;
+    room.state.turnDeadline = game.state.turnDeadline;
     p1.isConnected = false;
 
     await room.onJoin(client('p1', events), {});
@@ -92,9 +104,9 @@ describe('Wave 4 room lifecycle edges', () => {
     expect(events).toEqual([{
       type: 'game_event',
       payload: {
-        event: JSON.stringify({ type: 'defense_resumed', deadline: room.state.turnDeadline }),
+        event: JSON.stringify({ type: 'defense_resumed', deadline: game.state.turnDeadline }),
         actorId: 'p1',
-        turnId: room.state.turnIndex,
+        turnId: game.state.turnIndex,
       },
     }]);
   });

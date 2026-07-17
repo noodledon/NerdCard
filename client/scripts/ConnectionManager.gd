@@ -35,7 +35,7 @@ signal error(code: String, message: String)
 const RawWsClientScript = preload("res://scripts/raw-ws-client.gd")
 
 var ws: Node = null
-var endpoint: String = "ws://localhost:2567"
+var endpoint: String = "ws://localhost:2568"
 var room_name: String = "nerdiclash"
 var display_name: String = ""
 var _joined: bool = false

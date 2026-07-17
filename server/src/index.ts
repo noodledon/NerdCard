@@ -6,8 +6,8 @@ const { Server } = colyseus as unknown as { Server: new (opts?: Record<string, u
 
 const PORT = 2567;
 const server = http.createServer();
-const colyseusServer = appConfig(server);
+const { listen } = appConfig(server);
 
-colyseusServer.listen(PORT);
+listen(PORT);
 
 console.log(`NerdiClash server listening on :${PORT}`);
