@@ -1,4 +1,4 @@
-[gd_scene load_steps=3 format=3 uid="uid://c0mhp8gobfd8s"]
+[gd_scene format=3 uid="uid://c0mhp8gobfd8s"]
 
 [ext_resource type="Script" uid="uid://ut2fnjr8ekik" path="res://game.gd" id="1_80nbo"]
 [ext_resource type="PackedScene" uid="uid://dh8k2q1p3m4tn" path="res://scenes/PlayerPanel.tscn" id="2_panel"]
@@ -6,9 +6,9 @@
 [node name="Game" type="Node2D" unique_id=1929820718]
 script = ExtResource("1_80nbo")
 
-[node name="CanvasLayer" type="CanvasLayer" parent="."]
+[node name="CanvasLayer" type="CanvasLayer" parent="." unique_id=1063755624]
 
-[node name="MarginContainer" type="MarginContainer" parent="CanvasLayer"]
+[node name="MarginContainer" type="MarginContainer" parent="CanvasLayer" unique_id=1759712129]
 anchors_preset = 15
 anchor_right = 1.0
 anchor_bottom = 1.0
@@ -19,102 +19,101 @@ theme_override_constants/margin_top = 16
 theme_override_constants/margin_right = 16
 theme_override_constants/margin_bottom = 16
 
-[node name="VBoxContainer" type="VBoxContainer" parent="CanvasLayer/MarginContainer"]
+[node name="VBoxContainer" type="VBoxContainer" parent="CanvasLayer/MarginContainer" unique_id=195630039]
 layout_mode = 2
 theme_override_constants/separation = 12
 
-[node name="ConnectRow" type="HBoxContainer" parent="CanvasLayer/MarginContainer/VBoxContainer"]
+[node name="ConnectRow" type="HBoxContainer" parent="CanvasLayer/MarginContainer/VBoxContainer" unique_id=251060287]
 layout_mode = 2
 theme_override_constants/separation = 8
 
-[node name="IpLineEdit" type="LineEdit" parent="CanvasLayer/MarginContainer/VBoxContainer/ConnectRow"]
+[node name="IpLineEdit" type="LineEdit" parent="CanvasLayer/MarginContainer/VBoxContainer/ConnectRow" unique_id=1333571331]
 layout_mode = 2
 size_flags_horizontal = 3
-text = "ws://localhost:2567"
-placeholder_text = "ws://localhost:2567"
+text = "ws://localhost:2568"
+placeholder_text = "ws://localhost:2568"
 
-[node name="ConnectButton" type="Button" parent="CanvasLayer/MarginContainer/VBoxContainer/ConnectRow"]
+[node name="ConnectButton" type="Button" parent="CanvasLayer/MarginContainer/VBoxContainer/ConnectRow" unique_id=344984223]
 layout_mode = 2
 text = "Connect"
 
-[node name="StatusLabel" type="Label" parent="CanvasLayer/MarginContainer/VBoxContainer/ConnectRow"]
+[node name="StatusLabel" type="Label" parent="CanvasLayer/MarginContainer/VBoxContainer/ConnectRow" unique_id=939088187]
 layout_mode = 2
 text = "Disconnected"
 
-[node name="PhaseTurnRow" type="HBoxContainer" parent="CanvasLayer/MarginContainer/VBoxContainer"]
+[node name="PhaseTurnRow" type="HBoxContainer" parent="CanvasLayer/MarginContainer/VBoxContainer" unique_id=878866255]
 layout_mode = 2
 theme_override_constants/separation = 16
 
-[node name="TurnPhaseLabel" type="Label" parent="CanvasLayer/MarginContainer/VBoxContainer/PhaseTurnRow"]
+[node name="TurnPhaseLabel" type="Label" parent="CanvasLayer/MarginContainer/VBoxContainer/PhaseTurnRow" unique_id=1083962475]
 layout_mode = 2
 text = "Phase: waiting"
 
-[node name="TurnOwnerLabel" type="Label" parent="CanvasLayer/MarginContainer/VBoxContainer/PhaseTurnRow"]
+[node name="TurnOwnerLabel" type="Label" parent="CanvasLayer/MarginContainer/VBoxContainer/PhaseTurnRow" unique_id=1425659415]
 layout_mode = 2
 text = "Turn: -"
 
-[node name="OpponentPanel" parent="CanvasLayer/MarginContainer/VBoxContainer" instance=ExtResource("2_panel")]
+[node name="OpponentPanel" parent="CanvasLayer/MarginContainer/VBoxContainer" unique_id=1493649147 instance=ExtResource("2_panel")]
 layout_mode = 2
 
-[node name="BoardArea" type="Label" parent="CanvasLayer/MarginContainer/VBoxContainer"]
+[node name="BoardArea" type="Label" parent="CanvasLayer/MarginContainer/VBoxContainer" unique_id=1098709257]
 layout_mode = 2
 text = "--------------------------------"
 horizontal_alignment = 1
 
-[node name="LocalPanel" parent="CanvasLayer/MarginContainer/VBoxContainer" instance=ExtResource("2_panel")]
+[node name="LocalPanel" parent="CanvasLayer/MarginContainer/VBoxContainer" unique_id=769287539 instance=ExtResource("2_panel")]
 layout_mode = 2
 
-[node name="HandVBox" type="HBoxContainer" parent="CanvasLayer/MarginContainer/VBoxContainer"]
-layout_mode = 2
-theme_override_constants/separation = 8
-
-[node name="DeckButtons" type="HBoxContainer" parent="CanvasLayer/MarginContainer/VBoxContainer"]
+[node name="HandVBox" type="HBoxContainer" parent="CanvasLayer/MarginContainer/VBoxContainer" unique_id=1970772408]
 layout_mode = 2
 theme_override_constants/separation = 8
 
-[node name="DrawFCCButton" type="Button" parent="CanvasLayer/MarginContainer/VBoxContainer/DeckButtons"]
+[node name="DeckButtons" type="HBoxContainer" parent="CanvasLayer/MarginContainer/VBoxContainer" unique_id=118150293]
+layout_mode = 2
+theme_override_constants/separation = 8
+
+[node name="DrawFCCButton" type="Button" parent="CanvasLayer/MarginContainer/VBoxContainer/DeckButtons" unique_id=606340593]
 layout_mode = 2
 text = "Draw FCC"
 
-[node name="DrawNumberButton" type="Button" parent="CanvasLayer/MarginContainer/VBoxContainer/DeckButtons"]
+[node name="DrawNumberButton" type="Button" parent="CanvasLayer/MarginContainer/VBoxContainer/DeckButtons" unique_id=1354231272]
 layout_mode = 2
 text = "Draw Number"
 
-[node name="DrawActionButton" type="Button" parent="CanvasLayer/MarginContainer/VBoxContainer/DeckButtons"]
+[node name="DrawActionButton" type="Button" parent="CanvasLayer/MarginContainer/VBoxContainer/DeckButtons" unique_id=1337175432]
 layout_mode = 2
 text = "Draw Action"
 
-[node name="DeckCountLabel" type="Label" parent="CanvasLayer/MarginContainer/VBoxContainer/DeckButtons"]
+[node name="DeckCountLabel" type="Label" parent="CanvasLayer/MarginContainer/VBoxContainer/DeckButtons" unique_id=1594517150]
 layout_mode = 2
 text = "FCC: 0 | Num: 0 | Act: 0"
 
-[node name="ActionButtons" type="HBoxContainer" parent="CanvasLayer/MarginContainer/VBoxContainer"]
+[node name="ActionButtons" type="HBoxContainer" parent="CanvasLayer/MarginContainer/VBoxContainer" unique_id=403723993]
 layout_mode = 2
 theme_override_constants/separation = 8
 
-[node name="EndTurnButton" type="Button" parent="CanvasLayer/MarginContainer/VBoxContainer/ActionButtons"]
+[node name="EndTurnButton" type="Button" parent="CanvasLayer/MarginContainer/VBoxContainer/ActionButtons" unique_id=1477724837]
 layout_mode = 2
 text = "End Turn"
 
-[node name="EvaluateButton" type="Button" parent="CanvasLayer/MarginContainer/VBoxContainer/ActionButtons"]
+[node name="EvaluateButton" type="Button" parent="CanvasLayer/MarginContainer/VBoxContainer/ActionButtons" unique_id=222703779]
+visible = false
 layout_mode = 2
 text = "Evaluate"
-visible = false
 
-[node name="ErrorModal" type="Panel" parent="CanvasLayer/MarginContainer/VBoxContainer"]
+[node name="ErrorModal" type="Panel" parent="CanvasLayer/MarginContainer/VBoxContainer" unique_id=92437747]
 visible = false
 layout_mode = 2
 
-[node name="ErrorLabel" type="Label" parent="CanvasLayer/MarginContainer/VBoxContainer/ErrorModal"]
+[node name="ErrorLabel" type="Label" parent="CanvasLayer/MarginContainer/VBoxContainer/ErrorModal" unique_id=615848744]
 layout_mode = 0
 offset_left = 8.0
 offset_top = 8.0
 offset_right = -8.0
 offset_bottom = -8.0
-text = ""
 autowrap_mode = 3
 
-[node name="ErrorDismissTimer" type="Timer" parent="CanvasLayer/MarginContainer/VBoxContainer/ErrorModal"]
+[node name="ErrorDismissTimer" type="Timer" parent="CanvasLayer/MarginContainer/VBoxContainer/ErrorModal" unique_id=1709634585]
 wait_time = 3.0
 one_shot = true
 

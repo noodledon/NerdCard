@@ -149,6 +149,12 @@ Wave 5 QA scripts that assume a live server round-trip (T18–T20 "happy path"
 scenarios) cannot pass end-to-end until the bridge is built. This is scoped as
 follow-up server work, not a Wave 5 blocker.
 
+**Status: FIXED** — `server/src/json-bridge.ts` (`JsonBridgeServer`, port 2568)
+now accepts plain-JSON WebSocket connections and routes them into a
+transport-agnostic `NerdiClashGame` (extracted from `NerdiClashRoom`).
+`app.config.ts` starts both transports (Colyseus on 2567, JSON bridge on 2568),
+and the Godot client connects to 2568. Committed as `204c099`.
+
 ### 2. No join/session-identity message exists in the protocol
 
 The ten canonical `ClientMessage` types (`build_function`, `play_card`,
@@ -165,6 +171,11 @@ bypasses that entirely.
 `{"type": "joined", "sessionId": ..., "role": ...}` in response. This is
 client-only scaffolding today; the eventual JSON bridge (item #1) needs to emit
 `joined` after a successful Colyseus `onJoin`.
+
+**Status: FIXED** — `JsonBridgeServer.handleJoin()` implements exactly this
+handshake: it assigns the `json-N` session ID, seats `p1`/`p2` in join order,
+rejects a third client with `ROOM_FULL`, emits `joined`, and starts the game
+when the second player joins (see item #1).
 
 ### 3. `has_eval_legal` / `draws_this_turn` do not exist anywhere on the server
 
@@ -244,7 +255,132 @@ lifetime of a real game.
   1. `EvalCommand.ts` VVC subtype check (`'variable-value'` → `'Anchor'`)
   2. `ForceEvalCommand.ts` subtype check (`'force_eval'` → `'Force Evaluation'`)
   3. `NerdiClashRoom.ts:onJoin()` now seeds player decks from the catalog and initializes `deckCounts`
-- Items #1–#4 from the Wave 5 inconsistency list remain client-side compensations
-  (JSON bridge, join protocol, `has_eval_legal`/`draws_this_turn`, draw batch shape).
-  These are architectural gaps, not bugs — they require design decisions before
-  implementation.
+- Items #1–#2 from the Wave 5 inconsistency list are FIXED (JSON bridge +
+  `join_room`/`joined` handshake, commit `204c099`). Items #3–#4 remain
+  client-side compensations (`has_eval_legal`/`draws_this_turn`, draw batch
+  shape) — architectural gaps, not bugs, requiring design decisions.
+
+## Wave 5 Client Runtime Findings (First Live Godot Run)
+
+The first real Godot-client run against the JSON bridge surfaced three
+client-side issues, captured from the Godot debugger output. All fixed.
+
+### 1. `ERR_ALREADY_IN_USE` on duplicate Connect press (the valuable one)
+
+```text
+raw-ws-client.gd:26 @ connect_to(): Condition "ready_state != STATE_CLOSED
+&& ready_state != STATE_CLOSING" is true. Returning: ERR_ALREADY_IN_USE
+```
+
+**Root cause**: `raw-ws-client.gd` held a single `WebSocketPeer` instance for
+the app's whole lifetime, and Godot's `connect_to_url()` refuses to run unless
+that peer is fully `STATE_CLOSED`. Pressing the Connect button while the peer
+was `CONNECTING` or `OPEN` (a second click, or a click after a successful
+connect) was rejected at the C++ level.
+
+**Diagnostic value**: this error was actually *good news in disguise* — it can
+only fire when a previous connection attempt is still alive, so its appearance
+proved the first connect had not failed.
+
+**Fix**: `connect_to()` now ignores duplicate calls while `CONNECTING`/`OPEN`,
+and always dials from a **fresh** `WebSocketPeer` instance. This also fixes the
+latent reconnect bug: a used `WebSocketPeer` in Godot 4 cannot reliably
+re-connect after close, so disconnect→reconnect would have failed next.
+
+### 2. `INTEGER_DIVISION` warning — HP display truncated
+
+`PlayerPanel.gd:33` computed `int(hp10 / 10)`, which triggers Godot's
+integer-division warning and, worse, displays wrong HP: hp10 = 175 renders as
+"17" instead of "17.5", violating the locked `Display = hp10 / 10` constraint.
+
+**Fix**: `hp_label.text = "%.1f" % (hp10 / 10.0)`.
+
+### 3. Housekeeping warnings
+
+- `_pending_messages` was declared in `raw-ws-client.gd` but never used —
+  removed.
+- Every received packet was printed in full; with the bridge broadcasting
+  `state_snapshot` ~10×/second, the debugger console became an unreadable
+  waterfall. Snapshot bodies are no longer logged (other message types still
+  are).
+
+## Validation At This Checkpoint (Wave 5, live client)
+
+- `godot --headless --path client --quit` → zero script/parse errors after fixes.
+- Server: `npx tsc --noEmit` → 0 errors; `npx vitest run` → 160/160 tests.
+- JSON bridge verified end-to-end with a Node.js test client (join → `joined`
+  → seeded-deck state snapshots) in commit `204c099`.
+- **Pending**: full visual 2P smoke test with two live Godot instances (F3).
+
+## F1 Gameplay Audit — Findings and Fixes
+
+A post-Wave-5 audit of the live codebase against the game rules (`docs/gameplay-flow.md`)
+and the master plan revealed three inoperable gameplay systems and one connection bug.
+All four were fixed in the same session.
+
+### 1. Stuck-at-connecting (Godot client — PRIMARY)
+
+**Symptom**: after fixing the duplicate-connect bug (Wave 5, finding #1), a fresh run
+left the client stuck at "Connecting…" indefinitely. `connection_failed` never fired,
+meaning the peer never reached `STATE_CLOSED`.
+
+**Root cause**: `client/scripts/raw-ws-client.gd _process()` only called
+`peer.poll()` when `get_ready_state() == STATE_OPEN`. Godot 4's `WebSocketPeer`
+requires `poll()` to be called regularly during `STATE_CONNECTING` too; without it the
+TCP/TLS handshake never progresses and the peer stalls forever. This also explains the
+earlier `ERR_ALREADY_IN_USE` error: a previous peer stuck in `CONNECTING` was still
+alive when the button was pressed a second time.
+
+**Fix**: `_process()` now calls `peer.poll()` whenever the state is
+`STATE_CONNECTING` **or** `STATE_OPEN`. The `STATE_CLOSED` detection branch is
+unchanged.
+
+### 2. Stalling counters inoperable
+
+**Root cause**: `PhaseController.onEvalTurn()` and `PhaseController.onNoEvalTurn()`
+were defined and correctly wired to the FSM, but had zero call sites in production code.
+`consecutive_no_eval_turns` and `global_no_eval_turns` only advanced on FSM timeout
+(when `fsm.tick()` detected deadline expiry). Manual `end_turn` messages never advanced
+them, so force-eval could never trigger.
+
+**Fix**: `NerdiClashGame.requestEndTurn()` now reads `player.evaluatedThisTurn`
+**before** resetting it, then calls `phaseController.onEvalTurn()` (if the player
+evaluated) or `phaseController.onNoEvalTurn()` (if they did not). The flag is reset
+afterward. Additionally, `NerdiClashGame.dispatchIntent()` now calls
+`phaseController.onEvalTurn()` after a successful, non-fizzled `eval_function` or
+`force_eval` dispatch, so the counter resets correctly for mid-turn evaluations too.
+
+### 3. Force-eval counter reset clobbered by mirror()
+
+**Root cause**: `logic/evalEngine.ts:115,124` writes `state.consecutive_no_eval_turns = 0`
+directly onto the `ForceEvalState` object passed to `forceEval()`. However, the
+`PhaseController.mirror()` call that follows immediately after overwrites the schema's
+`consecutive_no_eval_turns` from the FSM's private copy — which had not been updated.
+The direct write was effectively a no-op in the schema.
+
+**Fix**: routing through `phaseController.onEvalTurn()` (fix #2 above) keeps the FSM
+state and the schema in sync. The `forceEval()` function still writes to its local
+`ForceEvalState` argument (which is fine for tests that use the pure function directly),
+but the authoritative schema update now always goes through the controller.
+
+### 4. Isolation win is dead code
+
+**Root cause**: `logic/winEngine.ts:checkWin()` correctly declares an isolation win when
+`timerFor(state, playerId) === 0`, but no production code ever initialized the timer to
+3 or decremented it. `variable_isolation_timers` was populated only by schema unit tests.
+The isolation win condition could never be reached in a real game.
+
+**Fix**: `NerdiClashGame` gains a private `tickIsolationTimers()` method called at each
+`requestEndTurn()`. For every player whose main board expression is a single lowercase
+letter (isolated), the method initializes the timer to 3 on first detection, decrements
+it on subsequent turns, and clears it when the expression is no longer isolated. The
+existing `winEngine.checkWin()` logic requires no changes.
+
+## Validation At This Checkpoint (F1 audit)
+
+- Server: `npx tsc --noEmit` → 0 errors; `npx vitest run` → 160/160 tests.
+- All four findings fixed in `NerdiClashGame.ts` and `raw-ws-client.gd`.
+- Verification recipe: start the server (`npx tsx src/index.ts`, confirm
+  `[JsonBridge] Listening on ws://localhost:2568`), run Godot, confirm URL box
+  shows `ws://localhost:2568`, press Connect once — expect `Connected as p1`
+  within one second.

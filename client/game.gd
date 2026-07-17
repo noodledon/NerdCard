@@ -64,6 +64,8 @@ func _on_state_changed(_snapshot: Dictionary) -> void:
 
 
 func _on_connection_error(code: String, message: String) -> void:
+	if code == "ERR_CONNECT_FAILED" or code == "ERR_CONNECT":
+		status_label.text = "Connection failed"
 	error_label.text = "%s\n%s" % [code, message]
 	error_modal.visible = true
 	error_dismiss_timer.start()

@@ -30,7 +30,7 @@ func update_from_player(player: Dictionary, display_name_fallback: String = "") 
 	name_label.text = String(player.get("displayName", display_name_fallback))
 
 	var hp10: int = int(player.get("hp10", 0))
-	hp_label.text = str(int(hp10 / 10))
+	hp_label.text = "%.1f" % (hp10 / 10.0)
 
 	var trap_card_id: String = String(player.get("trapCardId", ""))
 	trap_slot_indicator.text = "Trap: set" if trap_card_id != "" else "Trap: empty"
@@ -56,7 +56,7 @@ func update_from_player(player: Dictionary, display_name_fallback: String = "") 
 
 func _render_empty(display_name_fallback: String = "") -> void:
 	name_label.text = display_name_fallback
-	hp_label.text = "0"
+	hp_label.text = "0.0"
 	trap_slot_indicator.text = "Trap: empty"
 	for index in range(FUNCTION_SLOT_COUNT):
 		var slot: HBoxContainer = function_board_panel.get_child(index)

@@ -135,6 +135,9 @@ export class NerdiClashGame {
     if (result.ok && intent === 'play_defense') {
       this.phaseController.requestTransition(Phase.resolution);
     }
+    if (result.ok && !result.fizzled && (intent === 'eval_function' || intent === 'force_eval')) {
+      this.phaseController.onEvalTurn();
+    }
     return result;
   }
 
@@ -143,6 +146,14 @@ export class NerdiClashGame {
     if (!player) {
       return { ok: false, reason: 'player state missing' };
     }
+    // Advance stalling counters before resetting the flag so we read the true
+    // value for this turn. onEvalTurn resets consecutive_no_eval_turns; 
+    // onNoEvalTurn increments both counters and may return force-eval events.
+    if (player.evaluatedThisTurn) {
+      this.phaseController.onEvalTurn();
+    } else {
+      this.phaseController.onNoEvalTurn();
+    }
     player.aggressiveActionUsedThisTurn = false;
     player.offensivePlayedThisTurn = false;
     player.evaluatedThisTurn = false;
@@ -150,6 +161,7 @@ export class NerdiClashGame {
     this.state.forceEvalRequested = false;
     this.state.pendingTriggerId = '';
     this.state.defenseResponseUsed = false;
+    this.tickIsolationTimers();
     this.phaseController.requestTransition(Phase.resolution);
     this.phaseController.requestTransition(Phase.draw);
     this.rotateTurnOwner();
@@ -253,6 +265,23 @@ export class NerdiClashGame {
     this.state.deckCounts.set(`${player.sessionId}_fcc`, player.deckFCC.length);
     this.state.deckCounts.set(`${player.sessionId}_number`, player.deckNumber.length);
     this.state.deckCounts.set(`${player.sessionId}_action`, player.deckAction.length);
+  }
+
+  private tickIsolationTimers(): void {
+    for (const [id, p] of this.state.players.entries()) {
+      const mainBoard = [...p.boards][0];
+      const expr = mainBoard?.expression?.trim() ?? '';
+      if (/^[a-z]$/.test(expr)) {
+        const current = this.state.variable_isolation_timers.get(id);
+        if (current === undefined) {
+          this.state.variable_isolation_timers.set(id, 3);
+        } else if (current > 0) {
+          this.state.variable_isolation_timers.set(id, current - 1);
+        }
+      } else {
+        this.state.variable_isolation_timers.delete(id);
+      }
+    }
   }
 
   private rotateTurnOwner(): void {

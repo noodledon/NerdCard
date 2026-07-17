@@ -47,6 +47,7 @@ func _ready() -> void:
 	ws.connect("connected", Callable(self, "_on_ws_connected"))
 	ws.connect("disconnected", Callable(self, "_on_ws_disconnected"))
 	ws.connect("state_received", Callable(self, "_on_ws_message"))
+	ws.connect("connection_failed", Callable(self, "_on_ws_connection_failed"))
 
 
 func connect_to_server(url: String, name_hint: String = "") -> void:
@@ -68,6 +69,11 @@ func _on_ws_connected() -> void:
 func _on_ws_disconnected() -> void:
 	_joined = false
 	GameModel.reset()
+
+
+func _on_ws_connection_failed(reason: String) -> void:
+	_joined = false
+	emit_signal("error", "ERR_CONNECT_FAILED", "Could not connect to %s: %s" % [endpoint, reason])
 
 
 func _on_ws_message(data: Dictionary) -> void:
