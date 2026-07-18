@@ -197,99 +197,106 @@ theme_override_constants/margin_top = 16
 theme_override_constants/margin_right = 16
 theme_override_constants/margin_bottom = 16
 
-[node name="VBoxContainer" type="VBoxContainer" parent="CanvasLayer/MarginContainer" unique_id=195630039]
+[node name="ScrollContainer" type="ScrollContainer" parent="CanvasLayer/MarginContainer" unique_id=123456789]
+layout_mode = 2
+grow_horizontal = 2
+grow_vertical = 2
+scroll_horizontal_enabled = false
+scroll_vertical_enabled = true
+
+[node name="VBoxContainer" type="VBoxContainer" parent="CanvasLayer/MarginContainer/ScrollContainer" unique_id=195630039]
 layout_mode = 2
 theme_override_constants/separation = 12
 
-[node name="ConnectRow" type="HBoxContainer" parent="CanvasLayer/MarginContainer/VBoxContainer" unique_id=251060287]
+[node name="ConnectRow" type="HBoxContainer" parent="CanvasLayer/MarginContainer/ScrollContainer/VBoxContainer" unique_id=251060287]
 layout_mode = 2
 theme_override_constants/separation = 8
 
-[node name="IpLineEdit" type="LineEdit" parent="CanvasLayer/MarginContainer/VBoxContainer/ConnectRow" unique_id=1333571331]
+[node name="IpLineEdit" type="LineEdit" parent="CanvasLayer/MarginContainer/ScrollContainer/VBoxContainer/ConnectRow" unique_id=1333571331]
 layout_mode = 2
 size_flags_horizontal = 3
 text = "ws://localhost:2568"
 placeholder_text = "ws://localhost:2568"
 
-[node name="ConnectButton" type="Button" parent="CanvasLayer/MarginContainer/VBoxContainer/ConnectRow" unique_id=344984223]
+[node name="ConnectButton" type="Button" parent="CanvasLayer/MarginContainer/ScrollContainer/VBoxContainer/ConnectRow" unique_id=344984223]
 layout_mode = 2
 text = "Connect"
 
-[node name="StatusLabel" type="Label" parent="CanvasLayer/MarginContainer/VBoxContainer/ConnectRow" unique_id=939088187]
+[node name="StatusLabel" type="Label" parent="CanvasLayer/MarginContainer/ScrollContainer/VBoxContainer/ConnectRow" unique_id=939088187]
 layout_mode = 2
 theme_override_colors/font_color = Color(0.878, 0.878, 0.878, 1)
 text = "Disconnected"
 
-[node name="PhaseTurnRow" type="HBoxContainer" parent="CanvasLayer/MarginContainer/VBoxContainer" unique_id=878866255]
+[node name="PhaseTurnRow" type="HBoxContainer" parent="CanvasLayer/MarginContainer/ScrollContainer/VBoxContainer" unique_id=878866255]
 layout_mode = 2
 theme_override_constants/separation = 16
 
-[node name="TurnPhaseLabel" type="Label" parent="CanvasLayer/MarginContainer/VBoxContainer/PhaseTurnRow" unique_id=1083962475]
+[node name="TurnPhaseLabel" type="Label" parent="CanvasLayer/MarginContainer/ScrollContainer/VBoxContainer/PhaseTurnRow" unique_id=1083962475]
 layout_mode = 2
 theme_override_colors/font_color = Color(0.878, 0.878, 0.878, 1)
 theme_override_font_sizes/font_size = 26
 text = "Phase: waiting"
 vertical_alignment = 1
 
-[node name="TurnOwnerLabel" type="Label" parent="CanvasLayer/MarginContainer/VBoxContainer/PhaseTurnRow" unique_id=1425659415]
+[node name="TurnOwnerLabel" type="Label" parent="CanvasLayer/MarginContainer/ScrollContainer/VBoxContainer/PhaseTurnRow" unique_id=1425659415]
 layout_mode = 2
 theme_override_colors/font_color = Color(0.604, 0.604, 0.69, 1)
 theme_override_font_sizes/font_size = 16
 text = "Turn: -"
 vertical_alignment = 1
 
-[node name="ConstructionPanel" type="PanelContainer" parent="CanvasLayer/MarginContainer/VBoxContainer" unique_id=361189627]
+[node name="ConstructionPanel" type="PanelContainer" parent="CanvasLayer/MarginContainer/ScrollContainer/VBoxContainer" unique_id=361189627]
 visible = false
 layout_mode = 2
 theme_override_styles/panel = SubResource("sb_construction")
 
-[node name="ConstructionInner" type="VBoxContainer" parent="CanvasLayer/MarginContainer/VBoxContainer/ConstructionPanel" unique_id=612978669]
+[node name="ConstructionInner" type="VBoxContainer" parent="CanvasLayer/MarginContainer/ScrollContainer/VBoxContainer/ConstructionPanel" unique_id=612978669]
 layout_mode = 2
 theme_override_constants/separation = 6
 
-[node name="ConstructionHeader" type="Label" parent="CanvasLayer/MarginContainer/VBoxContainer/ConstructionPanel/ConstructionInner" unique_id=659775670]
+[node name="ConstructionHeader" type="Label" parent="CanvasLayer/MarginContainer/ScrollContainer/VBoxContainer/ConstructionPanel/ConstructionInner" unique_id=659775670]
 layout_mode = 2
 theme_override_colors/font_color = Color(1, 0.667, 0.133, 1)
 theme_override_font_sizes/font_size = 20
 text = "Construction Phase — build your function (60s)"
 
-[node name="ConstructionCountdown" type="Label" parent="CanvasLayer/MarginContainer/VBoxContainer/ConstructionPanel/ConstructionInner" unique_id=256932016]
+[node name="ConstructionCountdown" type="Label" parent="CanvasLayer/MarginContainer/ScrollContainer/VBoxContainer/ConstructionPanel/ConstructionInner" unique_id=256932016]
 layout_mode = 2
 theme_override_colors/font_color = Color(1, 0.533, 0.267, 1)
 theme_override_font_sizes/font_size = 16
 text = "60s"
 
-[node name="ConstructionEmpty" type="Label" parent="CanvasLayer/MarginContainer/VBoxContainer/ConstructionPanel/ConstructionInner" unique_id=204536011]
+[node name="ConstructionEmpty" type="Label" parent="CanvasLayer/MarginContainer/ScrollContainer/VBoxContainer/ConstructionPanel/ConstructionInner" unique_id=204536011]
 visible = false
 layout_mode = 2
 theme_override_colors/font_color = Color(0.604, 0.604, 0.69, 1)
 text = "Waiting for boards..."
 
-[node name="BoardListVBox" type="VBoxContainer" parent="CanvasLayer/MarginContainer/VBoxContainer/ConstructionPanel/ConstructionInner" unique_id=727372862]
+[node name="BoardListVBox" type="VBoxContainer" parent="CanvasLayer/MarginContainer/ScrollContainer/VBoxContainer/ConstructionPanel/ConstructionInner" unique_id=727372862]
 layout_mode = 2
 theme_override_constants/separation = 6
 
-[node name="OpponentPanel" parent="CanvasLayer/MarginContainer/VBoxContainer" unique_id=1493649147 instance=ExtResource("2_panel")]
+[node name="OpponentPanel" parent="CanvasLayer/MarginContainer/ScrollContainer/VBoxContainer" unique_id=1493649147 instance=ExtResource("2_panel")]
 layout_mode = 2
 
-[node name="BoardArea" type="Label" parent="CanvasLayer/MarginContainer/VBoxContainer" unique_id=1098709257]
+[node name="BoardArea" type="Label" parent="CanvasLayer/MarginContainer/ScrollContainer/VBoxContainer" unique_id=1098709257]
 layout_mode = 2
 theme_override_colors/font_color = Color(0.302, 0.302, 0.42, 1)
 text = "--------------------------------"
 horizontal_alignment = 1
 
-[node name="LocalPanel" parent="CanvasLayer/MarginContainer/VBoxContainer" unique_id=769287539 instance=ExtResource("2_panel")]
+[node name="LocalPanel" parent="CanvasLayer/MarginContainer/ScrollContainer/VBoxContainer" unique_id=769287539 instance=ExtResource("2_panel")]
 layout_mode = 2
 
-[node name="HandVBox" type="HBoxContainer" parent="CanvasLayer/MarginContainer/VBoxContainer" unique_id=1970772408]
-layout_mode = 2
-theme_override_constants/separation = 8
-
-[node name="DeckButtons" type="HBoxContainer" parent="CanvasLayer/MarginContainer/VBoxContainer" unique_id=118150293]
+[node name="HandVBox" type="HBoxContainer" parent="CanvasLayer/MarginContainer/ScrollContainer/VBoxContainer" unique_id=1970772408]
 layout_mode = 2
 theme_override_constants/separation = 8
 
-[node name="DrawFCCButton" type="Button" parent="CanvasLayer/MarginContainer/VBoxContainer/DeckButtons" unique_id=606340593]
+[node name="DeckButtons" type="HBoxContainer" parent="CanvasLayer/MarginContainer/ScrollContainer/VBoxContainer" unique_id=118150293]
+layout_mode = 2
+theme_override_constants/separation = 8
+
+[node name="DrawFCCButton" type="Button" parent="CanvasLayer/MarginContainer/ScrollContainer/VBoxContainer/DeckButtons" unique_id=606340593]
 custom_minimum_size = Vector2(120, 40)
 layout_mode = 2
 theme_override_colors/font_color = Color(1, 1, 1, 1)
@@ -303,7 +310,7 @@ theme_override_styles/disabled = SubResource("sb_disabled")
 theme_override_styles/focus = SubResource("sb_draw_normal")
 text = "Draw FCC"
 
-[node name="DrawNumberButton" type="Button" parent="CanvasLayer/MarginContainer/VBoxContainer/DeckButtons" unique_id=1354231272]
+[node name="DrawNumberButton" type="Button" parent="CanvasLayer/MarginContainer/ScrollContainer/VBoxContainer/DeckButtons" unique_id=1354231272]
 custom_minimum_size = Vector2(120, 40)
 layout_mode = 2
 theme_override_colors/font_color = Color(1, 1, 1, 1)
@@ -317,7 +324,7 @@ theme_override_styles/disabled = SubResource("sb_disabled")
 theme_override_styles/focus = SubResource("sb_draw_normal")
 text = "Draw Number"
 
-[node name="DrawActionButton" type="Button" parent="CanvasLayer/MarginContainer/VBoxContainer/DeckButtons" unique_id=1337175432]
+[node name="DrawActionButton" type="Button" parent="CanvasLayer/MarginContainer/ScrollContainer/VBoxContainer/DeckButtons" unique_id=1337175432]
 custom_minimum_size = Vector2(120, 40)
 layout_mode = 2
 theme_override_colors/font_color = Color(1, 1, 1, 1)
@@ -331,17 +338,17 @@ theme_override_styles/disabled = SubResource("sb_disabled")
 theme_override_styles/focus = SubResource("sb_draw_normal")
 text = "Draw Action"
 
-[node name="DeckCountLabel" type="Label" parent="CanvasLayer/MarginContainer/VBoxContainer/DeckButtons" unique_id=1594517150]
+[node name="DeckCountLabel" type="Label" parent="CanvasLayer/MarginContainer/ScrollContainer/VBoxContainer/DeckButtons" unique_id=1594517150]
 layout_mode = 2
 theme_override_colors/font_color = Color(0.604, 0.604, 0.69, 1)
 text = "FCC: 0 | Num: 0 | Act: 0"
 vertical_alignment = 1
 
-[node name="ActionButtons" type="HBoxContainer" parent="CanvasLayer/MarginContainer/VBoxContainer" unique_id=403723993]
+[node name="ActionButtons" type="HBoxContainer" parent="CanvasLayer/MarginContainer/ScrollContainer/VBoxContainer" unique_id=403723993]
 layout_mode = 2
 theme_override_constants/separation = 8
 
-[node name="EndTurnButton" type="Button" parent="CanvasLayer/MarginContainer/VBoxContainer/ActionButtons" unique_id=1477724837]
+[node name="EndTurnButton" type="Button" parent="CanvasLayer/MarginContainer/ScrollContainer/VBoxContainer/ActionButtons" unique_id=1477724837]
 custom_minimum_size = Vector2(160, 48)
 layout_mode = 2
 theme_override_colors/font_color = Color(1, 1, 1, 1)
@@ -356,7 +363,7 @@ theme_override_styles/disabled = SubResource("sb_disabled")
 theme_override_styles/focus = SubResource("sb_primary_normal")
 text = "End Turn"
 
-[node name="EvaluateButton" type="Button" parent="CanvasLayer/MarginContainer/VBoxContainer/ActionButtons" unique_id=222703779]
+[node name="EvaluateButton" type="Button" parent="CanvasLayer/MarginContainer/ScrollContainer/VBoxContainer/ActionButtons" unique_id=222703779]
 visible = false
 custom_minimum_size = Vector2(140, 48)
 layout_mode = 2
@@ -372,13 +379,13 @@ theme_override_styles/disabled = SubResource("sb_disabled")
 theme_override_styles/focus = SubResource("sb_special_normal")
 text = "Evaluate"
 
-[node name="ErrorModal" type="Panel" parent="CanvasLayer/MarginContainer/VBoxContainer" unique_id=92437747]
+[node name="ErrorModal" type="Panel" parent="CanvasLayer/MarginContainer/ScrollContainer/VBoxContainer" unique_id=92437747]
 visible = false
 custom_minimum_size = Vector2(0, 56)
 layout_mode = 2
 theme_override_styles/panel = SubResource("sb_error")
 
-[node name="ErrorLabel" type="Label" parent="CanvasLayer/MarginContainer/VBoxContainer/ErrorModal" unique_id=615848744]
+[node name="ErrorLabel" type="Label" parent="CanvasLayer/MarginContainer/ScrollContainer/VBoxContainer/ErrorModal" unique_id=615848744]
 layout_mode = 0
 offset_left = 12.0
 offset_top = 8.0
@@ -387,7 +394,7 @@ offset_bottom = -8.0
 theme_override_colors/font_color = Color(1, 0.6, 0.62, 1)
 autowrap_mode = 3
 
-[node name="ErrorDismissTimer" type="Timer" parent="CanvasLayer/MarginContainer/VBoxContainer/ErrorModal" unique_id=1709634585]
+[node name="ErrorDismissTimer" type="Timer" parent="CanvasLayer/MarginContainer/ScrollContainer/VBoxContainer/ErrorModal" unique_id=1709634585]
 wait_time = 3.0
 one_shot = true
 
@@ -428,10 +435,10 @@ theme_override_colors/font_color = Color(0.604, 0.604, 0.69, 1)
 horizontal_alignment = 1
 text = ""
 
-[connection signal="pressed" from="CanvasLayer/MarginContainer/VBoxContainer/ConnectRow/ConnectButton" to="." method="_on_connect_button_pressed"]
-[connection signal="pressed" from="CanvasLayer/MarginContainer/VBoxContainer/DeckButtons/DrawFCCButton" to="." method="_on_draw_fcc_pressed"]
-[connection signal="pressed" from="CanvasLayer/MarginContainer/VBoxContainer/DeckButtons/DrawNumberButton" to="." method="_on_draw_number_pressed"]
-[connection signal="pressed" from="CanvasLayer/MarginContainer/VBoxContainer/DeckButtons/DrawActionButton" to="." method="_on_draw_action_pressed"]
-[connection signal="pressed" from="CanvasLayer/MarginContainer/VBoxContainer/ActionButtons/EndTurnButton" to="." method="_on_end_turn_pressed"]
-[connection signal="pressed" from="CanvasLayer/MarginContainer/VBoxContainer/ActionButtons/EvaluateButton" to="." method="_on_evaluate_pressed"]
-[connection signal="timeout" from="CanvasLayer/MarginContainer/VBoxContainer/ErrorModal/ErrorDismissTimer" to="." method="_on_error_dismiss_timeout"]
+[connection signal="pressed" from="CanvasLayer/MarginContainer/ScrollContainer/VBoxContainer/ConnectRow/ConnectButton" to="." method="_on_connect_button_pressed"]
+[connection signal="pressed" from="CanvasLayer/MarginContainer/ScrollContainer/VBoxContainer/DeckButtons/DrawFCCButton" to="." method="_on_draw_fcc_pressed"]
+[connection signal="pressed" from="CanvasLayer/MarginContainer/ScrollContainer/VBoxContainer/DeckButtons/DrawNumberButton" to="." method="_on_draw_number_pressed"]
+[connection signal="pressed" from="CanvasLayer/MarginContainer/ScrollContainer/VBoxContainer/DeckButtons/DrawActionButton" to="." method="_on_draw_action_pressed"]
+[connection signal="pressed" from="CanvasLayer/MarginContainer/ScrollContainer/VBoxContainer/ActionButtons/EndTurnButton" to="." method="_on_end_turn_pressed"]
+[connection signal="pressed" from="CanvasLayer/MarginContainer/ScrollContainer/VBoxContainer/ActionButtons/EvaluateButton" to="." method="_on_evaluate_pressed"]
+[connection signal="timeout" from="CanvasLayer/MarginContainer/ScrollContainer/VBoxContainer/ErrorModal/ErrorDismissTimer" to="." method="_on_error_dismiss_timeout"]

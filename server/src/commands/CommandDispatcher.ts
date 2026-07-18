@@ -4,6 +4,7 @@ import { BuildFunctionCommand, type BuildFunctionCommandPayload } from './BuildF
 import { AttackHpCommand, type AttackHpPayload } from './AttackHpCommand.js';
 import { CompositionCommand, type CompositionPayload } from './CompositionCommand.js';
 import { DrawCommand, type DrawPayload } from './DrawCommand.js';
+import { DerivativeCommand, type DerivativePayload } from './DerivativeCommand.js';
 import { EvalCommand, type EvalPayload } from './EvalCommand.js';
 import { ForceEvalCommand, type ForceEvalPayload } from './ForceEvalCommand.js';
 import { TheoremArtifactCommand, type TheoremArtifactPayload } from './TheoremArtifactCommand.js';
@@ -23,6 +24,7 @@ export type CommandIntent =
   | { intent: 'force-eval'; payload: ForceEvalPayload }
   | { intent: 'eval'; payload: EvalPayload }
   | { intent: 'draw'; payload: DrawPayload }
+  | { intent: 'derivative'; payload: DerivativePayload }
   | { intent: 'build-function'; payload: BuildFunctionCommandPayload }
   | { intent: 'play-defense'; payload: PlayDefensePayload };
 
@@ -46,6 +48,7 @@ export class CommandDispatcher {
       case 'force-eval': return new ForceEvalCommand() as GameCommand<unknown>;
       case 'eval': return new EvalCommand() as GameCommand<unknown>;
       case 'draw': return new DrawCommand() as GameCommand<unknown>;
+      case 'derivative': return new DerivativeCommand() as GameCommand<unknown>;
       case 'build-function': return new BuildFunctionCommand() as GameCommand<unknown>;
       case 'play-defense': return new PlayDefenseCommand() as GameCommand<unknown>;
     }

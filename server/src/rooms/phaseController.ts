@@ -5,6 +5,8 @@ import {
   onNoEvalTurn,
   Phase,
   PhaseFSM,
+  submitBuildFunction,
+  type BuildFunctionPayload,
   type FSMEvent,
   type Phase as FSMPhase,
   type TransitionResult,
@@ -49,6 +51,12 @@ export class PhaseController {
     const events = onNoEvalTurn(this.fsm.state);
     this.mirror();
     return events;
+  }
+
+  submitBuildFunction(playerId: string, payload: BuildFunctionPayload, now = Date.now()): TransitionResult {
+    const result = submitBuildFunction(this.fsm.state, playerId, payload, now);
+    if (result.ok) this.mirror();
+    return result;
   }
 
   private mirror(): void {

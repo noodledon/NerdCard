@@ -156,6 +156,10 @@ export class PhaseFSM {
         this.requestTransition(Phase.resolution, now);
         break;
       case Phase.construction:
+        // AFK safeguard: if both players don't build within the window, end the
+        // game rather than forcing a player with an unbuilt board into draw
+        // (build_function is only valid in construction, so an empty board there
+        // would strand them for the whole match).
         events.push('game-over');
         this.requestTransition(Phase.gameOver, now);
         break;

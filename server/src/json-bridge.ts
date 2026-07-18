@@ -2,6 +2,7 @@ import http from 'http';
 import { WebSocket, WebSocketServer } from 'ws';
 import { NerdiClashGame } from './rooms/NerdiClashGame.js';
 import { ErrorCode } from './shared/ErrorCode.js';
+import { parseClientMessage } from './shared/messages.js';
 
 interface JsonClient {
   ws: WebSocket;
@@ -35,15 +36,19 @@ export class JsonBridgeServer {
   }
 
   private handleMessage(ws: WebSocket, data: unknown): void {
-    let msg: Record<string, unknown>;
+    let parsedJson: unknown;
     try {
-      msg = JSON.parse(String(data));
+      parsedJson = JSON.parse(String(data));
     } catch {
       this.send(ws, { type: 'error', code: 'INVALID_JSON', message: 'Malformed JSON' });
       return;
     }
-
-    const msgType = String(msg.type ?? '');
+    if (typeof parsedJson !== 'object' || parsedJson === null || Array.isArray(parsedJson)) {
+      this.send(ws, { type: 'error', code: ErrorCode.INVALID_PAYLOAD, message: 'Message must be an object' });
+      return;
+    }
+    const msg = parsedJson as Record<string, unknown>;
+    const msgType = typeof msg.type === 'string' ? msg.type : '';
 
     if (msgType === 'join_room') {
       this.handleJoin(ws, msg);
@@ -65,6 +70,15 @@ export class JsonBridgeServer {
       case 'ready_inst':
         this.send(ws, { type: 'ack', intent: 'ready_inst' });
         break;
+      case 'end_turn': {
+        const result = this.game.requestEndTurn(client.sessionId);
+        if (!result.ok) {
+          this.send(ws, { type: 'error', code: 'INVALID_TARGET', message: result.reason ?? 'end turn failed' });
+        } else {
+          this.send(ws, { type: 'ack', intent: 'end_turn' });
+        }
+        break;
+      }
       case 'draw_cards':
       case 'build_function':
       case 'play_card':
@@ -72,9 +86,15 @@ export class JsonBridgeServer {
       case 'force_eval':
       case 'set_trap':
       case 'play_defense':
-      case 'end_turn':
       case 'leave_room': {
-        const result = this.game.dispatchIntent(client.sessionId, msgType, msg);
+        const parsed = parseClientMessage(msg);
+        if (!parsed.ok) {
+          const path = parsed.error.issues.map((issue) => issue.path.join('.')).join('; ');
+          this.send(ws, { type: 'error', code: ErrorCode.INVALID_PAYLOAD, message: path || 'invalid payload' });
+          return;
+        }
+        const payload: Record<string, unknown> = { ...parsed.message };
+        const result = this.game.dispatchIntent(client.sessionId, parsed.message.type, payload);
         if (!result.ok) {
           this.send(ws, {
             type: 'error',
@@ -82,7 +102,7 @@ export class JsonBridgeServer {
             message: result.reason ?? 'command rejected',
           });
         } else {
-          this.send(ws, { type: 'ack', intent: msgType });
+          this.send(ws, { type: 'ack', intent: parsed.message.type });
         }
         break;
       }
@@ -96,6 +116,25 @@ export class JsonBridgeServer {
       this.game = new NerdiClashGame();
     }
 
+    const displayName = typeof msg.displayName === 'string' ? msg.displayName : undefined;
+
+    // Reconnection: if the client sends back a sessionId that belongs to a
+    // currently-disconnected player, restore their seat instead of rejecting
+    // the join as ROOM_FULL. This mirrors the Colyseus room's reconnection
+    // window (allowReconnection) which the raw JSON path otherwise lacks.
+    const rejoinId = typeof msg.sessionId === 'string' ? msg.sessionId : undefined;
+    if (rejoinId && !this.clients.has(rejoinId)) {
+      const existing = this.game.getPlayer(rejoinId);
+      if (existing && !existing.isConnected) {
+        this.game.reconnectPlayer(rejoinId, displayName);
+        const role: 'p1' | 'p2' = [...this.game.state.players.keys()][0] === rejoinId ? 'p1' : 'p2';
+        this.clients.set(rejoinId, { ws, sessionId: rejoinId, role });
+        this.send(ws, { type: 'joined', sessionId: rejoinId, role });
+        this.broadcastSnapshots();
+        return;
+      }
+    }
+
     if (this.game.playerCount() >= 2) {
       this.send(ws, { type: 'error', code: 'ROOM_FULL', message: 'Game already has 2 players' });
       ws.close();
@@ -104,15 +143,17 @@ export class JsonBridgeServer {
 
     const sessionId = `json-${this.nextSessionId++}`;
     const role: 'p1' | 'p2' = this.game.playerCount() === 0 ? 'p1' : 'p2';
-    const displayName = typeof msg.displayName === 'string' ? msg.displayName : sessionId;
 
-    this.game.addPlayer(sessionId, displayName);
+    this.game.addPlayer(sessionId, displayName ?? sessionId);
     this.clients.set(sessionId, { ws, sessionId, role });
 
     this.send(ws, { type: 'joined', sessionId, role });
 
     if (this.game.playerCount() === 2) {
       this.game.startGame();
+      // Force an immediate snapshot so both clients receive the construction
+      // phase right away instead of waiting for the next 100ms interval tick.
+      this.broadcastSnapshots();
     }
   }
 
@@ -123,8 +164,11 @@ export class JsonBridgeServer {
     this.game?.removePlayer(client.sessionId);
     this.clients.delete(client.sessionId);
 
-    // Auto-dispose game when empty
-    if (this.game?.playerCount() === 0) {
+    // Reset the game only once every live connection is gone. Tearing it down
+    // while a player is still connected would strand them, and keying off the
+    // connected-client count (not playerCount, which lingers as disconnected
+    // player state) lets a fresh game start cleanly on the next join.
+    if (this.clients.size === 0) {
       this.game = undefined;
     }
   }

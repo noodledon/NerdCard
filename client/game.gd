@@ -13,38 +13,38 @@
 
 extends Node2D
 
-@onready var ip_line_edit: LineEdit = $CanvasLayer/MarginContainer/VBoxContainer/ConnectRow/IpLineEdit
-@onready var connect_button: Button = $CanvasLayer/MarginContainer/VBoxContainer/ConnectRow/ConnectButton
-@onready var status_label: Label = $CanvasLayer/MarginContainer/VBoxContainer/ConnectRow/StatusLabel
+@onready var ip_line_edit: LineEdit = $CanvasLayer/MarginContainer/ScrollContainer/VBoxContainer/ConnectRow/IpLineEdit
+@onready var connect_button: Button = $CanvasLayer/MarginContainer/ScrollContainer/VBoxContainer/ConnectRow/ConnectButton
+@onready var status_label: Label = $CanvasLayer/MarginContainer/ScrollContainer/VBoxContainer/ConnectRow/StatusLabel
 
-@onready var turn_phase_label: Label = $CanvasLayer/MarginContainer/VBoxContainer/PhaseTurnRow/TurnPhaseLabel
-@onready var turn_owner_label: Label = $CanvasLayer/MarginContainer/VBoxContainer/PhaseTurnRow/TurnOwnerLabel
+@onready var turn_phase_label: Label = $CanvasLayer/MarginContainer/ScrollContainer/VBoxContainer/PhaseTurnRow/TurnPhaseLabel
+@onready var turn_owner_label: Label = $CanvasLayer/MarginContainer/ScrollContainer/VBoxContainer/PhaseTurnRow/TurnOwnerLabel
 
-@onready var construction_panel: PanelContainer = $CanvasLayer/MarginContainer/VBoxContainer/ConstructionPanel
-@onready var construction_countdown: Label = $CanvasLayer/MarginContainer/VBoxContainer/ConstructionPanel/ConstructionInner/ConstructionCountdown
-@onready var construction_empty: Label = $CanvasLayer/MarginContainer/VBoxContainer/ConstructionPanel/ConstructionInner/ConstructionEmpty
-@onready var board_list_vbox: VBoxContainer = $CanvasLayer/MarginContainer/VBoxContainer/ConstructionPanel/ConstructionInner/BoardListVBox
+@onready var construction_panel: PanelContainer = $CanvasLayer/MarginContainer/ScrollContainer/VBoxContainer/ConstructionPanel
+@onready var construction_countdown: Label = $CanvasLayer/MarginContainer/ScrollContainer/VBoxContainer/ConstructionPanel/ConstructionInner/ConstructionCountdown
+@onready var construction_empty: Label = $CanvasLayer/MarginContainer/ScrollContainer/VBoxContainer/ConstructionPanel/ConstructionInner/ConstructionEmpty
+@onready var board_list_vbox: VBoxContainer = $CanvasLayer/MarginContainer/ScrollContainer/VBoxContainer/ConstructionPanel/ConstructionInner/BoardListVBox
 
 @onready var game_over_overlay: ColorRect = $CanvasLayer/GameOverOverlay
 @onready var game_over_result: Label = $CanvasLayer/GameOverOverlay/GameOverCenter/GameOverBox/GameOverVBox/GameOverResult
 @onready var game_over_detail: Label = $CanvasLayer/GameOverOverlay/GameOverCenter/GameOverBox/GameOverVBox/GameOverDetail
 
-@onready var opponent_panel: PlayerPanel = $CanvasLayer/MarginContainer/VBoxContainer/OpponentPanel
-@onready var local_panel: PlayerPanel = $CanvasLayer/MarginContainer/VBoxContainer/LocalPanel
+@onready var opponent_panel: PlayerPanel = $CanvasLayer/MarginContainer/ScrollContainer/VBoxContainer/OpponentPanel
+@onready var local_panel: PlayerPanel = $CanvasLayer/MarginContainer/ScrollContainer/VBoxContainer/LocalPanel
 
-@onready var hand_vbox: HBoxContainer = $CanvasLayer/MarginContainer/VBoxContainer/HandVBox
+@onready var hand_vbox: HBoxContainer = $CanvasLayer/MarginContainer/ScrollContainer/VBoxContainer/HandVBox
 
-@onready var draw_fcc_button: Button = $CanvasLayer/MarginContainer/VBoxContainer/DeckButtons/DrawFCCButton
-@onready var draw_number_button: Button = $CanvasLayer/MarginContainer/VBoxContainer/DeckButtons/DrawNumberButton
-@onready var draw_action_button: Button = $CanvasLayer/MarginContainer/VBoxContainer/DeckButtons/DrawActionButton
-@onready var deck_count_label: Label = $CanvasLayer/MarginContainer/VBoxContainer/DeckButtons/DeckCountLabel
+@onready var draw_fcc_button: Button = $CanvasLayer/MarginContainer/ScrollContainer/VBoxContainer/DeckButtons/DrawFCCButton
+@onready var draw_number_button: Button = $CanvasLayer/MarginContainer/ScrollContainer/VBoxContainer/DeckButtons/DrawNumberButton
+@onready var draw_action_button: Button = $CanvasLayer/MarginContainer/ScrollContainer/VBoxContainer/DeckButtons/DrawActionButton
+@onready var deck_count_label: Label = $CanvasLayer/MarginContainer/ScrollContainer/VBoxContainer/DeckButtons/DeckCountLabel
 
-@onready var end_turn_button: Button = $CanvasLayer/MarginContainer/VBoxContainer/ActionButtons/EndTurnButton
-@onready var evaluate_button: Button = $CanvasLayer/MarginContainer/VBoxContainer/ActionButtons/EvaluateButton
+@onready var end_turn_button: Button = $CanvasLayer/MarginContainer/ScrollContainer/VBoxContainer/ActionButtons/EndTurnButton
+@onready var evaluate_button: Button = $CanvasLayer/MarginContainer/ScrollContainer/VBoxContainer/ActionButtons/EvaluateButton
 
-@onready var error_modal: Panel = $CanvasLayer/MarginContainer/VBoxContainer/ErrorModal
-@onready var error_label: Label = $CanvasLayer/MarginContainer/VBoxContainer/ErrorModal/ErrorLabel
-@onready var error_dismiss_timer: Timer = $CanvasLayer/MarginContainer/VBoxContainer/ErrorModal/ErrorDismissTimer
+@onready var error_modal: Panel = $CanvasLayer/MarginContainer/ScrollContainer/VBoxContainer/ErrorModal
+@onready var error_label: Label = $CanvasLayer/MarginContainer/ScrollContainer/VBoxContainer/ErrorModal/ErrorLabel
+@onready var error_dismiss_timer: Timer = $CanvasLayer/MarginContainer/ScrollContainer/VBoxContainer/ErrorModal/ErrorDismissTimer
 
 const CardButtonScript = preload("res://scripts/CardButton.gd")
 
@@ -150,23 +150,60 @@ func _render_from_model() -> void:
 ## hand rebuild). Rows are only present while phase == "construction"; in any
 ## other phase the whole panel is hidden and its children are cleared so no
 ## stale LineEdit text survives into the next construction window.
+## Uses reconciliation to preserve LineEdit nodes across snapshots.
+var _board_row_cache: Dictionary = {}  # boardId -> HBoxContainer
+
 func _render_construction_panel(phase: String, local_player: Dictionary) -> void:
 	var is_construction: bool = phase == "construction"
 	construction_panel.visible = is_construction
 
-	for child in board_list_vbox.get_children():
-		child.queue_free()
-
+	# Clear everything when leaving construction phase
 	if not is_construction:
+		for child in board_list_vbox.get_children():
+			child.queue_free()
+		_board_row_cache.clear()
 		return
+
+	# Clear cache and free rows for boards that disappeared
+	var current_board_ids = []
+	for board in local_player.get("boards", []):
+		current_board_ids.append(String(board.get("boardId", "")))
+	
+	for board_id in _board_row_cache.keys():
+		if not current_board_ids.has(board_id):
+			var row = _board_row_cache[board_id]
+			if is_instance_valid(row):
+				row.queue_free()
+			_board_row_cache.erase(board_id)
 
 	var boards: Array = local_player.get("boards", [])
 	construction_empty.visible = boards.is_empty()
 
+	# Reconcile: reuse existing rows, create new ones only for new board IDs
 	for board in boards:
 		var board_id: String = String(board.get("boardId", ""))
 		var expression: String = String(board.get("expression", ""))
-		board_list_vbox.add_child(_make_board_row(board_id, expression))
+		
+		if _board_row_cache.has(board_id):
+			# Reuse existing row - just update the expression label
+			var row = _board_row_cache[board_id]
+			if is_instance_valid(row):
+				var expr_label = row.get_child(1) as Label  # expr_label is at index 1
+				if expr_label:
+					expr_label.text = expression if expression != "" else "— none —"
+			else:
+				# Row exists in cache but is invalid, recreate it
+				row.queue_free()
+				_board_row_cache.erase(board_id)
+				var new_row = _make_board_row(board_id, expression)
+				board_list_vbox.add_child(new_row)
+				_board_row_cache[board_id] = new_row
+		else:
+			# New board ID, create a new row
+			var new_row = _make_board_row(board_id, expression)
+			board_list_vbox.add_child(new_row)
+			_board_row_cache[board_id] = new_row
+
 
 
 ## Builds one construction row: short board id, current expression, an entry

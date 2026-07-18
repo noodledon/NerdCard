@@ -1,6 +1,7 @@
-import { GameRoomState, PlayerSchema, catalogCardToSchema, shuffleArraySchema } from '../state/schema.js';
+import { GameRoomState, PlayerSchema, FunctionBoardSchema, addToHand, catalogCardToSchema, shuffleArraySchema } from '../state/schema.js';
 import { loadCatalog } from '../data/load-catalog.js';
 import { Phase } from '../logic/fsm.js';
+import type { BaseDomain } from '../shared/types.js';
 import { PhaseController } from './phaseController.js';
 import { CommandDispatcher, type CommandIntent } from '../commands/CommandDispatcher.js';
 import { evaluate } from '../logic/evalEngine.js';
@@ -124,6 +125,10 @@ export class NerdiClashGame {
         });
         if (!result.ok) return result;
       }
+      // Advance draw → play so the turn owner can play drawn cards and
+      // evaluate. The FSM allows draw: [play, gameOver]; nothing else
+      // would trigger this transition.
+      this.phaseController.requestTransition(Phase.play);
       return { ok: true };
     }
 
@@ -132,6 +137,17 @@ export class NerdiClashGame {
       return { ok: false, reason: `unsupported intent ${intent}` };
     }
     const result = this.dispatchCommand(commandIntent);
+    if (result.ok && intent === 'build_function') {
+      const board = this.findBoardForPlayer(sessionId, String(payload.boardId));
+      const domain = (board?.domain ?? 'poly') as BaseDomain;
+      const submission = this.phaseController.submitBuildFunction(sessionId, {
+        expression: String(payload.expression),
+        domain,
+      });
+      if (!submission.ok) {
+        return { ok: false, reason: submission.reason ?? 'build_function rejected by phase' };
+      }
+    }
     if (result.ok && intent === 'play_defense') {
       this.phaseController.requestTransition(Phase.resolution);
     }
@@ -254,7 +270,11 @@ export class NerdiClashGame {
     const catalog = loadCatalog();
     for (const card of catalog) {
       const cardSchema = catalogCardToSchema(card);
-      if (card.deck === 'fcc') player.deckFCC.push(cardSchema);
+      // VVCs are a documented opening resource, not random number-deck draws.
+      // Keeping every Anchor in hand guarantees both players can evaluate once
+      // they reach play phase and choose an Anchor in the client.
+      if (cardSchema.subtype === 'Anchor') addToHand(player, cardSchema);
+      else if (card.deck === 'fcc') player.deckFCC.push(cardSchema);
       else if (card.deck === 'number') player.deckNumber.push(cardSchema);
       else if (card.deck === 'action') player.deckAction.push(cardSchema);
     }
@@ -265,6 +285,18 @@ export class NerdiClashGame {
     this.state.deckCounts.set(`${player.sessionId}_fcc`, player.deckFCC.length);
     this.state.deckCounts.set(`${player.sessionId}_number`, player.deckNumber.length);
     this.state.deckCounts.set(`${player.sessionId}_action`, player.deckAction.length);
+
+    // Each player starts with one active board so they can build their initial
+    // function the moment the construction phase begins. Without this, the very
+    // first build_function fails with "board not found".
+    const board = new FunctionBoardSchema();
+    board.boardId = `${player.sessionId}_board_1`;
+    board.ownerSessionId = player.sessionId;
+    board.expression = '';
+    board.domain = 'poly';
+    board.isActive = true;
+    player.boards.push(board);
+    player.boardCount = player.boards.length;
   }
 
   private tickIsolationTimers(): void {
@@ -295,6 +327,12 @@ export class NerdiClashGame {
     this.eventListener?.({ event, actorId, details });
   }
 
+  private findBoardForPlayer(sessionId: string, boardId: string): FunctionBoardSchema | undefined {
+    const player = this.state.players.get(sessionId);
+    if (!player) return undefined;
+    return [...player.boards].find((b) => b?.boardId === boardId);
+  }
+
   private dispatchCommand(commandIntent: CommandIntent): CommandResult {
     return this.commandDispatcher.dispatch(this.state as unknown as CommandState, {
       evalEngine: { evaluate },
@@ -322,14 +360,80 @@ export class NerdiClashGame {
         return forceCard ? { intent: 'force-eval', payload: { playerId, cardId: forceCard.id } } : undefined;
       }
       case 'play_card': {
-        const target = payload.target as { kind: string; id?: string };
-        return { intent: 'attack-hp', payload: {
+        // The JSON bridge receives untrusted JSON directly. Keep this guard even
+        // though the bridge validates with Zod so no future transport can crash
+        // the authoritative game loop by omitting target.
+        if (typeof payload.target !== 'object' || payload.target === null || Array.isArray(payload.target)) {
+          return undefined;
+        }
+        const target = payload.target as { kind?: unknown; id?: unknown };
+        if (typeof target.kind !== 'string') return undefined;
+
+        const cardId = typeof payload.cardId === 'string' ? payload.cardId : undefined;
+        if (!cardId) return undefined;
+        const player = this.state.players.get(playerId);
+        const card = player ? [...player.hand].find((candidate) => candidate?.id === cardId) : undefined;
+        if (!player || !card) return undefined;
+
+        const targetId = typeof target.id === 'string' ? target.id : undefined;
+        const rawNumberFactors = payload.numberFactorCardIds;
+        const numberCardId = Array.isArray(rawNumberFactors) && typeof rawNumberFactors[0] === 'string'
+          ? rawNumberFactors[0]
+          : undefined;
+        const boardId = target.kind === 'self_board' ? targetId : undefined;
+        const attackPayload = {
           playerId,
-          cardId: String(payload.cardId),
-          targetPlayerId: target.kind === 'opp' ? target.id : undefined,
-          targetBoardId: target.kind === 'opp_board' ? target.id : undefined,
-          numberCardId: (payload.numberFactorCardIds as string[] | undefined)?.[0],
-        } };
+          cardId,
+          targetPlayerId: target.kind === 'opp' ? targetId : undefined,
+          targetBoardId: target.kind === 'opp_board' ? targetId : undefined,
+          numberCardId,
+        };
+
+        switch (card.cardType) {
+          case 'addTerm':
+            return {
+              intent: 'add-term',
+              payload: { playerId, cardId, boardId, term: card.expressionPayload || 't' },
+            };
+          case 'derivative':
+            return { intent: 'derivative', payload: { playerId, cardId, boardId } };
+          case 'offensive':
+            return { intent: 'attack-hp', payload: attackPayload };
+          case 'martialTheorem':
+            return { intent: 'theorem-martial', payload: { ...attackPayload, damage10: 8 } };
+          case 'trap':
+            return { intent: 'trap', payload: { playerId, trapCardId: cardId } };
+          case 'artifactTheorem':
+            return { intent: 'theorem-artifact', payload: { playerId, cardId } };
+          case 'forceEval':
+            return { intent: 'force-eval', payload: { playerId, cardId } };
+          case 'addBoard': {
+            const firstBoard = [...player.boards][0];
+            const nextBoardId = `${playerId}_board_${player.boards.length + 1}`;
+            return {
+              intent: 'add-board',
+              payload: {
+                playerId,
+                cardId,
+                boardId: nextBoardId,
+                expression: '',
+                domain: firstBoard?.domain ?? '',
+              },
+            };
+          }
+          case 'composition': {
+            const outerBoardId = boardId ?? [...player.boards][0]?.boardId;
+            const innerBoardId = [...player.boards].find((board) => board?.boardId !== outerBoardId)?.boardId;
+            return outerBoardId && innerBoardId
+              ? { intent: 'composition', payload: { playerId, cardId, outerBoardId, innerBoardId } }
+              : undefined;
+          }
+          // Integral and limit are deliberate v1 math-engine stubs; all other
+          // unimplemented catalog effects must reject rather than masquerading
+          // as an HP attack.
+          default:
+            return undefined;
+        }
       }
       default:
         return undefined;
