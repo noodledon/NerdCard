@@ -88,6 +88,8 @@ func _on_ws_message(data: Dictionary) -> void:
 			emit_signal("state_changed", GameModel.state)
 		"error":
 			emit_signal("error", String(data.get("code", "UNKNOWN")), String(data.get("message", "")))
+		"ack":
+			pass
 		_:
 			if OS.is_debug_build():
 				print("[ConnectionManager] ignoring unhandled message type: ", msg_type)

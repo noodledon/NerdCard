@@ -20,6 +20,15 @@ extends Node2D
 @onready var turn_phase_label: Label = $CanvasLayer/MarginContainer/VBoxContainer/PhaseTurnRow/TurnPhaseLabel
 @onready var turn_owner_label: Label = $CanvasLayer/MarginContainer/VBoxContainer/PhaseTurnRow/TurnOwnerLabel
 
+@onready var construction_panel: PanelContainer = $CanvasLayer/MarginContainer/VBoxContainer/ConstructionPanel
+@onready var construction_countdown: Label = $CanvasLayer/MarginContainer/VBoxContainer/ConstructionPanel/ConstructionInner/ConstructionCountdown
+@onready var construction_empty: Label = $CanvasLayer/MarginContainer/VBoxContainer/ConstructionPanel/ConstructionInner/ConstructionEmpty
+@onready var board_list_vbox: VBoxContainer = $CanvasLayer/MarginContainer/VBoxContainer/ConstructionPanel/ConstructionInner/BoardListVBox
+
+@onready var game_over_overlay: ColorRect = $CanvasLayer/GameOverOverlay
+@onready var game_over_result: Label = $CanvasLayer/GameOverOverlay/GameOverCenter/GameOverBox/GameOverVBox/GameOverResult
+@onready var game_over_detail: Label = $CanvasLayer/GameOverOverlay/GameOverCenter/GameOverBox/GameOverVBox/GameOverDetail
+
 @onready var opponent_panel: PlayerPanel = $CanvasLayer/MarginContainer/VBoxContainer/OpponentPanel
 @onready var local_panel: PlayerPanel = $CanvasLayer/MarginContainer/VBoxContainer/LocalPanel
 
@@ -39,7 +48,46 @@ extends Node2D
 
 const CardButtonScript = preload("res://scripts/CardButton.gd")
 
+## Friendly display text for each server phase string. Keys are the exact
+## lowercase phase strings emitted by the server FSM.
+const PHASE_LABELS: Dictionary = {
+	"waiting": "Waiting for opponent...",
+	"construction": "Construction (build your function)",
+	"draw": "Draw Phase",
+	"play": "Play Phase",
+	"defense": "Defense Phase",
+	"resolution": "Resolution",
+	"gameOver": "Game Over",
+}
+
+## Max expression length accepted by the server (BuildFunctionSchema).
+const MAX_EXPRESSION_LEN: int = 500
+
+## Dark-chalkboard accent per phase — tints the phase banner so the current
+## phase is legible at a glance (see nerdcard-ui-theme memory). Keys match the
+## server FSM phase strings exactly.
+const PHASE_COLORS: Dictionary = {
+	"waiting": Color(0.4, 0.467, 0.533),
+	"construction": Color(1, 0.667, 0.133),
+	"draw": Color(0.267, 0.533, 1),
+	"play": Color(0.133, 0.8, 0.4),
+	"defense": Color(1, 0.533, 0.267),
+	"resolution": Color(0.627, 0.4, 1),
+	"gameOver": Color(1, 0.2, 0.267),
+}
+const PHASE_DEFAULT_COLOR: Color = Color(0.878, 0.878, 0.878)
+
+## Shared palette tokens reused by the dynamically-built construction rows.
+const MATH_GREEN: Color = Color(0, 1, 0.533)
+const TEXT_DIM: Color = Color(0.604, 0.604, 0.69)
+
 var _local_role: String = ""
+
+## boardIds whose Build button was pressed and is awaiting a server state
+## update. Cleared on every state_changed (send_intent is fire-and-forget;
+## the next snapshot is the acknowledgement). Kept so a rapid double-render
+## before the next snapshot does not re-enable an in-flight button.
+var _pending_build_board_ids: Dictionary = {}
 
 
 func _ready() -> void:
@@ -60,6 +108,10 @@ func _on_connected(role: String) -> void:
 
 
 func _on_state_changed(_snapshot: Dictionary) -> void:
+	## A fresh snapshot is the server's acknowledgement of any in-flight
+	## build_function intent, so Build buttons re-enable here (see the
+	## rebuild in _render_construction_panel).
+	_pending_build_board_ids.clear()
 	_render_from_model()
 
 
@@ -77,17 +129,181 @@ func _on_error_dismiss_timeout() -> void:
 
 func _render_from_model() -> void:
 	var state: Dictionary = GameModel.state
-	turn_phase_label.text = "Phase: %s" % String(state.get("phase", "waiting"))
+	var phase: String = String(state.get("phase", "waiting"))
+	turn_phase_label.text = "Phase: %s" % PHASE_LABELS.get(phase, phase)
+	turn_phase_label.add_theme_color_override("font_color", PHASE_COLORS.get(phase, PHASE_DEFAULT_COLOR))
 	turn_owner_label.text = "Turn: %s" % String(state.get("currentTurnPlayerId", ""))
 
 	var local_player: Dictionary = GameModel.local_player()
 	var opponent_player: Dictionary = GameModel.opponent_player()
-	local_panel.update_from_player(local_player, "You")
-	opponent_panel.update_from_player(opponent_player, "Opponent")
+	local_panel.update_from_player(local_player, "You", "Your HP: ")
+	opponent_panel.update_from_player(opponent_player, "Opponent", "Opponent HP: ")
 
 	_render_deck_counts(local_player)
 	_rebuild_hand(local_player)
 	_update_action_button_states(local_player)
+	_render_construction_panel(phase, local_player)
+	_render_game_over(phase, state)
+
+
+## Rebuilds the construction UI from scratch on every render (mirroring the
+## hand rebuild). Rows are only present while phase == "construction"; in any
+## other phase the whole panel is hidden and its children are cleared so no
+## stale LineEdit text survives into the next construction window.
+func _render_construction_panel(phase: String, local_player: Dictionary) -> void:
+	var is_construction: bool = phase == "construction"
+	construction_panel.visible = is_construction
+
+	for child in board_list_vbox.get_children():
+		child.queue_free()
+
+	if not is_construction:
+		return
+
+	var boards: Array = local_player.get("boards", [])
+	construction_empty.visible = boards.is_empty()
+
+	for board in boards:
+		var board_id: String = String(board.get("boardId", ""))
+		var expression: String = String(board.get("expression", ""))
+		board_list_vbox.add_child(_make_board_row(board_id, expression))
+
+
+## Builds one construction row: short board id, current expression, an entry
+## field, and a Build button. The Build button starts disabled if this board
+## already has an intent in flight (see _pending_build_board_ids).
+func _make_board_row(board_id: String, expression: String) -> HBoxContainer:
+	var row := HBoxContainer.new()
+	row.add_theme_constant_override("separation", 8)
+
+	var id_label := Label.new()
+	id_label.text = board_id.substr(0, 8) if board_id != "" else "(no id)"
+	id_label.add_theme_color_override("font_color", TEXT_DIM)
+	id_label.add_theme_font_size_override("font_size", 12)
+	row.add_child(id_label)
+
+	var expr_label := Label.new()
+	expr_label.text = expression if expression != "" else "— none —"
+	expr_label.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+	expr_label.add_theme_font_override("font", _mono_font())
+	expr_label.add_theme_color_override("font_color", MATH_GREEN)
+	row.add_child(expr_label)
+
+	var entry := LineEdit.new()
+	entry.placeholder_text = "e.g. x^2 + 1"
+	entry.text = expression
+	entry.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+	entry.custom_minimum_size = Vector2(220, 0)
+	entry.add_theme_stylebox_override("normal", _entry_stylebox())
+	entry.add_theme_color_override("font_color", Color(0.878, 0.878, 0.878))
+	row.add_child(entry)
+
+	var build_button := Button.new()
+	build_button.text = "Build"
+	build_button.disabled = _pending_build_board_ids.has(board_id)
+	_style_button_primary(build_button)
+	build_button.pressed.connect(_on_build_pressed.bind(board_id, entry, build_button))
+	row.add_child(build_button)
+
+	return row
+
+
+## Lazily-built shared monospace font for construction-row expression readouts.
+var _mono_font_cache: SystemFont
+func _mono_font() -> SystemFont:
+	if _mono_font_cache == null:
+		_mono_font_cache = SystemFont.new()
+		_mono_font_cache.font_names = PackedStringArray(["JetBrains Mono", "Menlo", "Consolas", "monospace"])
+	return _mono_font_cache
+
+
+## A dark inset field style matching the "calculator display" look elsewhere.
+func _entry_stylebox() -> StyleBoxFlat:
+	var sb := StyleBoxFlat.new()
+	sb.bg_color = Color(0.078, 0.078, 0.133)
+	sb.set_corner_radius_all(4)
+	sb.set_border_width_all(1)
+	sb.border_color = Color(0.227, 0.227, 0.361)
+	sb.content_margin_left = 8
+	sb.content_margin_right = 8
+	sb.content_margin_top = 4
+	sb.content_margin_bottom = 4
+	return sb
+
+
+## Filled green primary-button styling with hover/pressed/disabled states.
+## Applied to dynamically-created Build buttons so they match the static
+## primary actions defined in game.tscn.
+func _style_button_primary(btn: Button) -> void:
+	btn.custom_minimum_size = Vector2(90, 36)
+	btn.add_theme_color_override("font_color", Color(1, 1, 1))
+	btn.add_theme_color_override("font_hover_color", Color(1, 1, 1))
+	btn.add_theme_color_override("font_pressed_color", Color(1, 1, 1))
+	btn.add_theme_color_override("font_disabled_color", Color(0.5, 0.5, 0.6))
+	btn.add_theme_stylebox_override("normal", _button_fill(Color(0.133, 0.8, 0.4)))
+	btn.add_theme_stylebox_override("hover", _button_fill(Color(0.196, 0.86, 0.463)))
+	btn.add_theme_stylebox_override("pressed", _button_fill(Color(0.098, 0.6, 0.302)))
+	btn.add_theme_stylebox_override("focus", _button_fill(Color(0.133, 0.8, 0.4)))
+	btn.add_theme_stylebox_override("disabled", _button_fill(Color(0.176, 0.176, 0.235, 0.4)))
+
+
+func _button_fill(bg: Color) -> StyleBoxFlat:
+	var sb := StyleBoxFlat.new()
+	sb.bg_color = bg
+	sb.set_corner_radius_all(6)
+	sb.content_margin_left = 14
+	sb.content_margin_right = 14
+	sb.content_margin_top = 8
+	sb.content_margin_bottom = 8
+	return sb
+
+
+func _on_build_pressed(board_id: String, entry: LineEdit, build_button: Button) -> void:
+	var expr: String = entry.text.strip_edges()
+	if expr == "" or expr.length() > MAX_EXPRESSION_LEN:
+		return
+
+	## Disable immediately; re-enabled by the next state_changed (send_intent
+	## is fire-and-forget with no per-intent callback).
+	build_button.disabled = true
+	_pending_build_board_ids[board_id] = true
+	ConnectionManager.send_intent("build_function", {
+		"boardId": board_id,
+		"expression": expr,
+	})
+
+
+## Full-screen modal shown only in the gameOver phase. Compares the winning
+## sessionId against this client's own to pick the outcome text.
+func _render_game_over(phase: String, state: Dictionary) -> void:
+	var is_over: bool = phase == "gameOver"
+	game_over_overlay.visible = is_over
+	if not is_over:
+		return
+
+	var winner: Variant = state.get("winner", null)
+	var winner_id: String = String(winner) if winner != null else ""
+	if winner_id == "":
+		game_over_result.text = "Draw"
+		game_over_detail.text = "No winner this match."
+	elif winner_id == GameModel.local_session_id:
+		game_over_result.text = "You Win!"
+		game_over_detail.text = "You defeated your opponent."
+	else:
+		game_over_result.text = "You Lose"
+		game_over_detail.text = "Your opponent won this match."
+
+
+## Updates the construction countdown every frame while that phase is active.
+## turnDeadline is a server Unix-ms timestamp; remaining seconds are derived
+## against the local clock and floored at zero.
+func _process(_delta: float) -> void:
+	if String(GameModel.state.get("phase", "")) != "construction":
+		return
+	var deadline_ms: float = float(GameModel.state.get("turnDeadline", 0))
+	var now_ms: float = Time.get_unix_time_from_system() * 1000.0
+	var remaining: int = int(max(0.0, (deadline_ms - now_ms) / 1000.0))
+	construction_countdown.text = "%ds" % remaining
 
 
 func _render_deck_counts(local_player: Dictionary) -> void:
@@ -106,6 +322,9 @@ func _render_deck_counts(local_player: Dictionary) -> void:
 
 func _rebuild_hand(local_player: Dictionary) -> void:
 	for child in hand_vbox.get_children():
+		# Remove immediately before queueing deletion so a same-frame rebuild can
+		# reuse the stable node names below without Godot appending @Button@NNN.
+		hand_vbox.remove_child(child)
 		child.queue_free()
 
 	var hand: Array = local_player.get("hand", [])
@@ -113,7 +332,9 @@ func _rebuild_hand(local_player: Dictionary) -> void:
 	var phase: String = String(GameModel.state.get("phase", ""))
 
 	for card in hand:
+		var card_id: String = String(card.get("id", ""))
 		var button := CardButtonScript.new()
+		button.name = "HandCard_%s" % card_id
 		hand_vbox.add_child(button)
 		button.set_card(card)
 		button.disabled = not (is_local_turn and phase == "play")

@@ -34,3 +34,20 @@ justfile
 
 # Local learning notes
 teach.md
+
+# Generated Godot screenshots (dev tool)
+client/tools/shots/
+
+# godot-mcp-runtime raw captures/session files (dev tool)
+client/.mcp/
+
+# Local agent config
+opencode.json
+report.md
+
+# Dev/QA tooling
+server/qa-runner.mjs
+server/playmatch.mjs
+
+# Client dev tools
+client/tools/

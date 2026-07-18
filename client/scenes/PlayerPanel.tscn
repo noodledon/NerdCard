@@ -5,56 +5,77 @@
 [node name="PlayerPanel" type="VBoxContainer"]
 script = ExtResource("1_panel")
 
-[node name="NameLabel" type="Label" parent="."]
+[node name="Card" type="PanelContainer" parent="."]
+layout_mode = 2
+
+[node name="CardInner" type="VBoxContainer" parent="Card"]
+layout_mode = 2
+theme_override_constants/separation = 6
+
+[node name="NameLabel" type="Label" parent="Card/CardInner"]
 layout_mode = 2
 text = "Player"
 
-[node name="HPLabel" type="Label" parent="."]
+[node name="HPBar" type="ProgressBar" parent="Card/CardInner"]
+custom_minimum_size = Vector2(0, 18)
+layout_mode = 2
+max_value = 200.0
+value = 0.0
+show_percentage = false
+
+[node name="HPLabel" type="Label" parent="Card/CardInner"]
 layout_mode = 2
 text = "0"
 
-[node name="TrapSlotIndicator" type="Label" parent="."]
+[node name="TrapSlotIndicator" type="Label" parent="Card/CardInner"]
 layout_mode = 2
 text = "Trap: empty"
 
-[node name="FunctionBoardPanel" type="VBoxContainer" parent="."]
+[node name="FunctionBoardPanel" type="VBoxContainer" parent="Card/CardInner"]
 layout_mode = 2
+theme_override_constants/separation = 6
 
-[node name="FunctionSlot0" type="HBoxContainer" parent="FunctionBoardPanel"]
+[node name="FunctionSlot0" type="HBoxContainer" parent="Card/CardInner/FunctionBoardPanel"]
 layout_mode = 2
+theme_override_constants/separation = 8
 
-[node name="ExprLabel" type="Label" parent="FunctionBoardPanel/FunctionSlot0"]
+[node name="ExprLabel" type="Label" parent="Card/CardInner/FunctionBoardPanel/FunctionSlot0"]
 layout_mode = 2
+size_flags_horizontal = 3
 text = "(empty)"
 
-[node name="DomainBadge" type="Label" parent="FunctionBoardPanel/FunctionSlot0"]
+[node name="DomainBadge" type="Label" parent="Card/CardInner/FunctionBoardPanel/FunctionSlot0"]
 layout_mode = 2
 
-[node name="DepthBadge" type="Label" parent="FunctionBoardPanel/FunctionSlot0"]
+[node name="DepthBadge" type="Label" parent="Card/CardInner/FunctionBoardPanel/FunctionSlot0"]
 layout_mode = 2
 
-[node name="FunctionSlot1" type="HBoxContainer" parent="FunctionBoardPanel"]
+[node name="FunctionSlot1" type="HBoxContainer" parent="Card/CardInner/FunctionBoardPanel"]
 layout_mode = 2
+theme_override_constants/separation = 8
 
-[node name="ExprLabel" type="Label" parent="FunctionBoardPanel/FunctionSlot1"]
+[node name="ExprLabel" type="Label" parent="Card/CardInner/FunctionBoardPanel/FunctionSlot1"]
 layout_mode = 2
+size_flags_horizontal = 3
 text = "(empty)"
 
-[node name="DomainBadge" type="Label" parent="FunctionBoardPanel/FunctionSlot1"]
+[node name="DomainBadge" type="Label" parent="Card/CardInner/FunctionBoardPanel/FunctionSlot1"]
 layout_mode = 2
 
-[node name="DepthBadge" type="Label" parent="FunctionBoardPanel/FunctionSlot1"]
+[node name="DepthBadge" type="Label" parent="Card/CardInner/FunctionBoardPanel/FunctionSlot1"]
 layout_mode = 2
 
-[node name="FunctionSlot2" type="HBoxContainer" parent="FunctionBoardPanel"]
+[node name="FunctionSlot2" type="HBoxContainer" parent="Card/CardInner/FunctionBoardPanel"]
 layout_mode = 2
+theme_override_constants/separation = 8
 
-[node name="ExprLabel" type="Label" parent="FunctionBoardPanel/FunctionSlot2"]
+[node name="ExprLabel" type="Label" parent="Card/CardInner/FunctionBoardPanel/FunctionSlot2"]
 layout_mode = 2
+size_flags_horizontal = 3
 text = "(empty)"
 
-[node name="DomainBadge" type="Label" parent="FunctionBoardPanel/FunctionSlot2"]
+[node name="DomainBadge" type="Label" parent="Card/CardInner/FunctionBoardPanel/FunctionSlot2"]
 layout_mode = 2
 
-[node name="DepthBadge" type="Label" parent="FunctionBoardPanel/FunctionSlot2"]
+[node name="DepthBadge" type="Label" parent="Card/CardInner/FunctionBoardPanel/FunctionSlot2"]
 layout_mode = 2

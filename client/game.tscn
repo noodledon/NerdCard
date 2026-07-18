@@ -3,10 +3,188 @@
 [ext_resource type="Script" uid="uid://ut2fnjr8ekik" path="res://game.gd" id="1_80nbo"]
 [ext_resource type="PackedScene" uid="uid://dh8k2q1p3m4tn" path="res://scenes/PlayerPanel.tscn" id="2_panel"]
 
+[sub_resource type="StyleBoxFlat" id="sb_construction"]
+bg_color = Color(0.137, 0.137, 0.227, 1)
+border_width_left = 4
+border_width_top = 1
+border_width_right = 1
+border_width_bottom = 1
+border_color = Color(1, 0.667, 0.133, 1)
+corner_radius_top_left = 8
+corner_radius_top_right = 8
+corner_radius_bottom_right = 8
+corner_radius_bottom_left = 8
+content_margin_left = 12.0
+content_margin_top = 12.0
+content_margin_right = 12.0
+content_margin_bottom = 12.0
+
+[sub_resource type="StyleBoxFlat" id="sb_error"]
+bg_color = Color(0.22, 0.09, 0.11, 1)
+border_width_left = 1
+border_width_top = 1
+border_width_right = 1
+border_width_bottom = 1
+border_color = Color(1, 0.2, 0.267, 1)
+corner_radius_top_left = 8
+corner_radius_top_right = 8
+corner_radius_bottom_right = 8
+corner_radius_bottom_left = 8
+
+[sub_resource type="StyleBoxFlat" id="sb_gameover"]
+bg_color = Color(0.137, 0.137, 0.227, 1)
+border_width_left = 2
+border_width_top = 2
+border_width_right = 2
+border_width_bottom = 2
+border_color = Color(0.227, 0.227, 0.361, 1)
+corner_radius_top_left = 12
+corner_radius_top_right = 12
+corner_radius_bottom_right = 12
+corner_radius_bottom_left = 12
+content_margin_left = 32.0
+content_margin_top = 24.0
+content_margin_right = 32.0
+content_margin_bottom = 24.0
+
+[sub_resource type="StyleBoxFlat" id="sb_primary_normal"]
+bg_color = Color(0.133, 0.8, 0.4, 1)
+corner_radius_top_left = 6
+corner_radius_top_right = 6
+corner_radius_bottom_right = 6
+corner_radius_bottom_left = 6
+content_margin_left = 16.0
+content_margin_top = 8.0
+content_margin_right = 16.0
+content_margin_bottom = 8.0
+
+[sub_resource type="StyleBoxFlat" id="sb_primary_hover"]
+bg_color = Color(0.196, 0.86, 0.463, 1)
+corner_radius_top_left = 6
+corner_radius_top_right = 6
+corner_radius_bottom_right = 6
+corner_radius_bottom_left = 6
+content_margin_left = 16.0
+content_margin_top = 8.0
+content_margin_right = 16.0
+content_margin_bottom = 8.0
+
+[sub_resource type="StyleBoxFlat" id="sb_primary_pressed"]
+bg_color = Color(0.098, 0.6, 0.302, 1)
+corner_radius_top_left = 6
+corner_radius_top_right = 6
+corner_radius_bottom_right = 6
+corner_radius_bottom_left = 6
+content_margin_left = 16.0
+content_margin_top = 8.0
+content_margin_right = 16.0
+content_margin_bottom = 8.0
+
+[sub_resource type="StyleBoxFlat" id="sb_disabled"]
+bg_color = Color(0.176, 0.176, 0.235, 0.4)
+corner_radius_top_left = 6
+corner_radius_top_right = 6
+corner_radius_bottom_right = 6
+corner_radius_bottom_left = 6
+content_margin_left = 16.0
+content_margin_top = 8.0
+content_margin_right = 16.0
+content_margin_bottom = 8.0
+
+[sub_resource type="StyleBoxFlat" id="sb_special_normal"]
+bg_color = Color(1, 0.533, 0.267, 1)
+corner_radius_top_left = 6
+corner_radius_top_right = 6
+corner_radius_bottom_right = 6
+corner_radius_bottom_left = 6
+content_margin_left = 16.0
+content_margin_top = 8.0
+content_margin_right = 16.0
+content_margin_bottom = 8.0
+
+[sub_resource type="StyleBoxFlat" id="sb_special_hover"]
+bg_color = Color(1, 0.62, 0.4, 1)
+corner_radius_top_left = 6
+corner_radius_top_right = 6
+corner_radius_bottom_right = 6
+corner_radius_bottom_left = 6
+content_margin_left = 16.0
+content_margin_top = 8.0
+content_margin_right = 16.0
+content_margin_bottom = 8.0
+
+[sub_resource type="StyleBoxFlat" id="sb_special_pressed"]
+bg_color = Color(0.8, 0.4, 0.18, 1)
+corner_radius_top_left = 6
+corner_radius_top_right = 6
+corner_radius_bottom_right = 6
+corner_radius_bottom_left = 6
+content_margin_left = 16.0
+content_margin_top = 8.0
+content_margin_right = 16.0
+content_margin_bottom = 8.0
+
+[sub_resource type="StyleBoxFlat" id="sb_draw_normal"]
+bg_color = Color(0.267, 0.533, 1, 1)
+corner_radius_top_left = 6
+corner_radius_top_right = 6
+corner_radius_bottom_right = 6
+corner_radius_bottom_left = 6
+content_margin_left = 14.0
+content_margin_top = 8.0
+content_margin_right = 14.0
+content_margin_bottom = 8.0
+
+[sub_resource type="StyleBoxFlat" id="sb_draw_hover"]
+bg_color = Color(0.4, 0.62, 1, 1)
+corner_radius_top_left = 6
+corner_radius_top_right = 6
+corner_radius_bottom_right = 6
+corner_radius_bottom_left = 6
+content_margin_left = 14.0
+content_margin_top = 8.0
+content_margin_right = 14.0
+content_margin_bottom = 8.0
+
+[sub_resource type="StyleBoxFlat" id="sb_draw_pressed"]
+bg_color = Color(0.196, 0.4, 0.8, 1)
+corner_radius_top_left = 6
+corner_radius_top_right = 6
+corner_radius_bottom_right = 6
+corner_radius_bottom_left = 6
+content_margin_left = 14.0
+content_margin_top = 8.0
+content_margin_right = 14.0
+content_margin_bottom = 8.0
+
+[sub_resource type="StyleBoxFlat" id="sb_entry"]
+bg_color = Color(0.078, 0.078, 0.133, 1)
+border_width_left = 1
+border_width_top = 1
+border_width_right = 1
+border_width_bottom = 1
+border_color = Color(0.227, 0.227, 0.361, 1)
+corner_radius_top_left = 4
+corner_radius_top_right = 4
+corner_radius_bottom_right = 4
+corner_radius_bottom_left = 4
+content_margin_left = 8.0
+content_margin_top = 4.0
+content_margin_right = 8.0
+content_margin_bottom = 4.0
+
 [node name="Game" type="Node2D" unique_id=1929820718]
 script = ExtResource("1_80nbo")
 
 [node name="CanvasLayer" type="CanvasLayer" parent="." unique_id=1063755624]
+
+[node name="Background" type="ColorRect" parent="CanvasLayer" unique_id=1063755000]
+anchors_preset = 15
+anchor_right = 1.0
+anchor_bottom = 1.0
+grow_horizontal = 2
+grow_vertical = 2
+color = Color(0.102, 0.102, 0.18, 1)
 
 [node name="MarginContainer" type="MarginContainer" parent="CanvasLayer" unique_id=1759712129]
 anchors_preset = 15
@@ -39,6 +217,7 @@ text = "Connect"
 
 [node name="StatusLabel" type="Label" parent="CanvasLayer/MarginContainer/VBoxContainer/ConnectRow" unique_id=939088187]
 layout_mode = 2
+theme_override_colors/font_color = Color(0.878, 0.878, 0.878, 1)
 text = "Disconnected"
 
 [node name="PhaseTurnRow" type="HBoxContainer" parent="CanvasLayer/MarginContainer/VBoxContainer" unique_id=878866255]
@@ -47,17 +226,55 @@ theme_override_constants/separation = 16
 
 [node name="TurnPhaseLabel" type="Label" parent="CanvasLayer/MarginContainer/VBoxContainer/PhaseTurnRow" unique_id=1083962475]
 layout_mode = 2
+theme_override_colors/font_color = Color(0.878, 0.878, 0.878, 1)
+theme_override_font_sizes/font_size = 26
 text = "Phase: waiting"
+vertical_alignment = 1
 
 [node name="TurnOwnerLabel" type="Label" parent="CanvasLayer/MarginContainer/VBoxContainer/PhaseTurnRow" unique_id=1425659415]
 layout_mode = 2
+theme_override_colors/font_color = Color(0.604, 0.604, 0.69, 1)
+theme_override_font_sizes/font_size = 16
 text = "Turn: -"
+vertical_alignment = 1
+
+[node name="ConstructionPanel" type="PanelContainer" parent="CanvasLayer/MarginContainer/VBoxContainer" unique_id=361189627]
+visible = false
+layout_mode = 2
+theme_override_styles/panel = SubResource("sb_construction")
+
+[node name="ConstructionInner" type="VBoxContainer" parent="CanvasLayer/MarginContainer/VBoxContainer/ConstructionPanel" unique_id=612978669]
+layout_mode = 2
+theme_override_constants/separation = 6
+
+[node name="ConstructionHeader" type="Label" parent="CanvasLayer/MarginContainer/VBoxContainer/ConstructionPanel/ConstructionInner" unique_id=659775670]
+layout_mode = 2
+theme_override_colors/font_color = Color(1, 0.667, 0.133, 1)
+theme_override_font_sizes/font_size = 20
+text = "Construction Phase — build your function (60s)"
+
+[node name="ConstructionCountdown" type="Label" parent="CanvasLayer/MarginContainer/VBoxContainer/ConstructionPanel/ConstructionInner" unique_id=256932016]
+layout_mode = 2
+theme_override_colors/font_color = Color(1, 0.533, 0.267, 1)
+theme_override_font_sizes/font_size = 16
+text = "60s"
+
+[node name="ConstructionEmpty" type="Label" parent="CanvasLayer/MarginContainer/VBoxContainer/ConstructionPanel/ConstructionInner" unique_id=204536011]
+visible = false
+layout_mode = 2
+theme_override_colors/font_color = Color(0.604, 0.604, 0.69, 1)
+text = "Waiting for boards..."
+
+[node name="BoardListVBox" type="VBoxContainer" parent="CanvasLayer/MarginContainer/VBoxContainer/ConstructionPanel/ConstructionInner" unique_id=727372862]
+layout_mode = 2
+theme_override_constants/separation = 6
 
 [node name="OpponentPanel" parent="CanvasLayer/MarginContainer/VBoxContainer" unique_id=1493649147 instance=ExtResource("2_panel")]
 layout_mode = 2
 
 [node name="BoardArea" type="Label" parent="CanvasLayer/MarginContainer/VBoxContainer" unique_id=1098709257]
 layout_mode = 2
+theme_override_colors/font_color = Color(0.302, 0.302, 0.42, 1)
 text = "--------------------------------"
 horizontal_alignment = 1
 
@@ -73,49 +290,143 @@ layout_mode = 2
 theme_override_constants/separation = 8
 
 [node name="DrawFCCButton" type="Button" parent="CanvasLayer/MarginContainer/VBoxContainer/DeckButtons" unique_id=606340593]
+custom_minimum_size = Vector2(120, 40)
 layout_mode = 2
+theme_override_colors/font_color = Color(1, 1, 1, 1)
+theme_override_colors/font_hover_color = Color(1, 1, 1, 1)
+theme_override_colors/font_pressed_color = Color(1, 1, 1, 1)
+theme_override_colors/font_disabled_color = Color(0.5, 0.5, 0.6, 1)
+theme_override_styles/normal = SubResource("sb_draw_normal")
+theme_override_styles/hover = SubResource("sb_draw_hover")
+theme_override_styles/pressed = SubResource("sb_draw_pressed")
+theme_override_styles/disabled = SubResource("sb_disabled")
+theme_override_styles/focus = SubResource("sb_draw_normal")
 text = "Draw FCC"
 
 [node name="DrawNumberButton" type="Button" parent="CanvasLayer/MarginContainer/VBoxContainer/DeckButtons" unique_id=1354231272]
+custom_minimum_size = Vector2(120, 40)
 layout_mode = 2
+theme_override_colors/font_color = Color(1, 1, 1, 1)
+theme_override_colors/font_hover_color = Color(1, 1, 1, 1)
+theme_override_colors/font_pressed_color = Color(1, 1, 1, 1)
+theme_override_colors/font_disabled_color = Color(0.5, 0.5, 0.6, 1)
+theme_override_styles/normal = SubResource("sb_draw_normal")
+theme_override_styles/hover = SubResource("sb_draw_hover")
+theme_override_styles/pressed = SubResource("sb_draw_pressed")
+theme_override_styles/disabled = SubResource("sb_disabled")
+theme_override_styles/focus = SubResource("sb_draw_normal")
 text = "Draw Number"
 
 [node name="DrawActionButton" type="Button" parent="CanvasLayer/MarginContainer/VBoxContainer/DeckButtons" unique_id=1337175432]
+custom_minimum_size = Vector2(120, 40)
 layout_mode = 2
+theme_override_colors/font_color = Color(1, 1, 1, 1)
+theme_override_colors/font_hover_color = Color(1, 1, 1, 1)
+theme_override_colors/font_pressed_color = Color(1, 1, 1, 1)
+theme_override_colors/font_disabled_color = Color(0.5, 0.5, 0.6, 1)
+theme_override_styles/normal = SubResource("sb_draw_normal")
+theme_override_styles/hover = SubResource("sb_draw_hover")
+theme_override_styles/pressed = SubResource("sb_draw_pressed")
+theme_override_styles/disabled = SubResource("sb_disabled")
+theme_override_styles/focus = SubResource("sb_draw_normal")
 text = "Draw Action"
 
 [node name="DeckCountLabel" type="Label" parent="CanvasLayer/MarginContainer/VBoxContainer/DeckButtons" unique_id=1594517150]
 layout_mode = 2
+theme_override_colors/font_color = Color(0.604, 0.604, 0.69, 1)
 text = "FCC: 0 | Num: 0 | Act: 0"
+vertical_alignment = 1
 
 [node name="ActionButtons" type="HBoxContainer" parent="CanvasLayer/MarginContainer/VBoxContainer" unique_id=403723993]
 layout_mode = 2
 theme_override_constants/separation = 8
 
 [node name="EndTurnButton" type="Button" parent="CanvasLayer/MarginContainer/VBoxContainer/ActionButtons" unique_id=1477724837]
+custom_minimum_size = Vector2(160, 48)
 layout_mode = 2
+theme_override_colors/font_color = Color(1, 1, 1, 1)
+theme_override_colors/font_hover_color = Color(1, 1, 1, 1)
+theme_override_colors/font_pressed_color = Color(1, 1, 1, 1)
+theme_override_colors/font_disabled_color = Color(0.5, 0.5, 0.6, 1)
+theme_override_font_sizes/font_size = 18
+theme_override_styles/normal = SubResource("sb_primary_normal")
+theme_override_styles/hover = SubResource("sb_primary_hover")
+theme_override_styles/pressed = SubResource("sb_primary_pressed")
+theme_override_styles/disabled = SubResource("sb_disabled")
+theme_override_styles/focus = SubResource("sb_primary_normal")
 text = "End Turn"
 
 [node name="EvaluateButton" type="Button" parent="CanvasLayer/MarginContainer/VBoxContainer/ActionButtons" unique_id=222703779]
 visible = false
+custom_minimum_size = Vector2(140, 48)
 layout_mode = 2
+theme_override_colors/font_color = Color(1, 1, 1, 1)
+theme_override_colors/font_hover_color = Color(1, 1, 1, 1)
+theme_override_colors/font_pressed_color = Color(1, 1, 1, 1)
+theme_override_colors/font_disabled_color = Color(0.5, 0.5, 0.6, 1)
+theme_override_font_sizes/font_size = 18
+theme_override_styles/normal = SubResource("sb_special_normal")
+theme_override_styles/hover = SubResource("sb_special_hover")
+theme_override_styles/pressed = SubResource("sb_special_pressed")
+theme_override_styles/disabled = SubResource("sb_disabled")
+theme_override_styles/focus = SubResource("sb_special_normal")
 text = "Evaluate"
 
 [node name="ErrorModal" type="Panel" parent="CanvasLayer/MarginContainer/VBoxContainer" unique_id=92437747]
 visible = false
+custom_minimum_size = Vector2(0, 56)
 layout_mode = 2
+theme_override_styles/panel = SubResource("sb_error")
 
 [node name="ErrorLabel" type="Label" parent="CanvasLayer/MarginContainer/VBoxContainer/ErrorModal" unique_id=615848744]
 layout_mode = 0
-offset_left = 8.0
+offset_left = 12.0
 offset_top = 8.0
-offset_right = -8.0
+offset_right = -12.0
 offset_bottom = -8.0
+theme_override_colors/font_color = Color(1, 0.6, 0.62, 1)
 autowrap_mode = 3
 
 [node name="ErrorDismissTimer" type="Timer" parent="CanvasLayer/MarginContainer/VBoxContainer/ErrorModal" unique_id=1709634585]
 wait_time = 3.0
 one_shot = true
+
+[node name="GameOverOverlay" type="ColorRect" parent="CanvasLayer" unique_id=272491341]
+visible = false
+anchors_preset = 15
+anchor_right = 1.0
+anchor_bottom = 1.0
+grow_horizontal = 2
+grow_vertical = 2
+color = Color(0, 0, 0, 0.7)
+
+[node name="GameOverCenter" type="CenterContainer" parent="CanvasLayer/GameOverOverlay" unique_id=427553912]
+anchors_preset = 15
+anchor_right = 1.0
+anchor_bottom = 1.0
+grow_horizontal = 2
+grow_vertical = 2
+
+[node name="GameOverBox" type="PanelContainer" parent="CanvasLayer/GameOverOverlay/GameOverCenter" unique_id=269885603]
+layout_mode = 2
+theme_override_styles/panel = SubResource("sb_gameover")
+
+[node name="GameOverVBox" type="VBoxContainer" parent="CanvasLayer/GameOverOverlay/GameOverCenter/GameOverBox" unique_id=583776488]
+layout_mode = 2
+theme_override_constants/separation = 12
+
+[node name="GameOverResult" type="Label" parent="CanvasLayer/GameOverOverlay/GameOverCenter/GameOverBox/GameOverVBox" unique_id=295575445]
+layout_mode = 2
+theme_override_colors/font_color = Color(0, 1, 0.533, 1)
+theme_override_font_sizes/font_size = 32
+horizontal_alignment = 1
+text = "Game Over"
+
+[node name="GameOverDetail" type="Label" parent="CanvasLayer/GameOverOverlay/GameOverCenter/GameOverBox/GameOverVBox" unique_id=624486974]
+layout_mode = 2
+theme_override_colors/font_color = Color(0.604, 0.604, 0.69, 1)
+horizontal_alignment = 1
+text = ""
 
 [connection signal="pressed" from="CanvasLayer/MarginContainer/VBoxContainer/ConnectRow/ConnectButton" to="." method="_on_connect_button_pressed"]
 [connection signal="pressed" from="CanvasLayer/MarginContainer/VBoxContainer/DeckButtons/DrawFCCButton" to="." method="_on_draw_fcc_pressed"]

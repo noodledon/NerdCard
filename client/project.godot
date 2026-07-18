@@ -21,8 +21,7 @@ ConnectionManager="*res://scripts/ConnectionManager.gd"
 
 [display]
 
-window/stretch/mode="canvas_items"
-window/stretch/aspect="expand"
+window/size/fullscreen=true
 
 [physics]
 
