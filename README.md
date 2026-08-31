@@ -9,7 +9,7 @@ A mathematically-driven strategic card game where players construct functions, m
 | Layer | Tech | Role |
 |-------|------|------|
 | Server | Node.js + TypeScript + Colyseus | Authoritative rules engine |
-| Math | mathjs | Expression parsing, derivatives, evaluation |
+| Math | mathjs + optional SymPy service | Local math plus symbolic integration, limits, continuity, RREF, and rank |
 | Client | Godot 4.7 + GDScript | Dumb UI — renders server state, sends intents |
 | Tests | vitest | Server-side unit/integration tests |
 
@@ -37,6 +37,24 @@ cd server
 npm run typecheck    # tsc --noEmit
 npm test             # vitest (175 tests)
 ```
+
+### SymPy mode
+
+Normal development and `npm test` use math.js and do not require Python. Set `USE_SYMPY=true` to route integration, limit, continuity, RREF, and rank operations to the FastAPI service. `SYMPY_URL` defaults to `http://localhost:2569`.
+
+```bash
+python -m venv sympy-service/.venv
+sympy-service/.venv/bin/pip install -r sympy-service/requirements.txt
+./server/scripts/test-with-sympy.sh
+```
+
+The script starts the service, waits for `/health`, runs the full server suite with SymPy enabled, and stops the service. To run the application stack instead:
+
+```bash
+docker compose up --build
+```
+
+Compose enables `USE_SYMPY=true`, starts SymPy on `:2569`, and waits for its health check before starting Node.
 
 ### Client
 
@@ -80,7 +98,7 @@ server/src/
   json-bridge.ts  # Godot-facing WebSocket bridge
   rooms/          # Colyseus room shell + NerdiClashGame
   data/           # Card catalog
-  math/           # Math engine helpers
+  math/           # math.js engine and optional SymPy adapter
 
 client/
   game.gd         # Main scene controller
@@ -90,6 +108,8 @@ client/
 
 docs/
   gameplay-flow.md # Game design explainer
+
+sympy-service/     # FastAPI/SymPy calculator service
 
 .sisyphus/
   plans/nerdicard-dev-plan.md # Master development plan
@@ -132,6 +152,7 @@ npx vitest run --testNamePattern="schema"
 - **TypeScript `strict: true`** — no ESLint/Prettier; quality gate is `tsc --noEmit` + vitest.
 - **Decorators:** `experimentalDecorators` + `useDefineForClassFields: false` (required for `@colyseus/schema`).
 - **Colyseus Godot SDK unavailable for Godot 4.7** — the client uses a custom raw WebSocket client (`client/scripts/raw-ws-client.gd`). `ColyseusConnection.gd` is an inert stub.
+- **SymPy is optional by default.** `USE_SYMPY=true` enables the hybrid engine; configure its endpoint with `SYMPY_URL`.
 
 ## Notes
 
