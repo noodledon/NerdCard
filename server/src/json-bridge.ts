@@ -23,7 +23,7 @@ export class JsonBridgeServer {
     this.wss = new WebSocketServer({ server: this.httpServer });
 
     this.wss.on('connection', (ws) => {
-      ws.on('message', (data) => this.handleMessage(ws, data));
+      ws.on('message', (data) => { void this.handleMessage(ws, data); });
       ws.on('close', () => this.handleDisconnect(ws));
       ws.on('error', (err) => console.error('[JsonBridge] WebSocket error:', err));
     });
@@ -35,7 +35,7 @@ export class JsonBridgeServer {
     this.snapshotInterval = setInterval(() => this.broadcastSnapshots(), 100);
   }
 
-  private handleMessage(ws: WebSocket, data: unknown): void {
+  private async handleMessage(ws: WebSocket, data: unknown): Promise<void> {
     let parsedJson: unknown;
     try {
       parsedJson = JSON.parse(String(data));
@@ -94,7 +94,8 @@ export class JsonBridgeServer {
           return;
         }
         const payload: Record<string, unknown> = { ...parsed.message };
-        const result = this.game.dispatchIntent(client.sessionId, parsed.message.type, payload);
+        const rawResult = this.game.dispatchIntent(client.sessionId, parsed.message.type, payload);
+        const result = await Promise.resolve(rawResult);
         if (!result.ok) {
           this.send(ws, {
             type: 'error',

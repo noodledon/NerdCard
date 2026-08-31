@@ -124,7 +124,8 @@ export class NerdiClashRoom extends ColyseusRoom {
     if (intent === 'ready_inst') return;
 
     if (intent === 'draw_cards') {
-      const result = this.game.dispatchIntent(client.sessionId, intent, payload);
+      const rawResult = this.game.dispatchIntent(client.sessionId, intent, payload);
+      const result = await Promise.resolve(rawResult);
       if (!result.ok) {
         client.send('error', {
           code: this.errorCodeFor(result.reason),
@@ -134,7 +135,8 @@ export class NerdiClashRoom extends ColyseusRoom {
       return;
     }
 
-    const result = this.game.dispatchIntent(client.sessionId, intent, payload);
+    const rawResult = this.game.dispatchIntent(client.sessionId, intent, payload);
+    const result = await Promise.resolve(rawResult);
     if (!result.ok) {
       client.send('error', { code: this.errorCodeFor(result.reason), message: result.reason ?? 'command rejected' });
       return;
