@@ -7,6 +7,8 @@ import { DrawCommand, type DrawPayload } from './DrawCommand.js';
 import { DerivativeCommand, type DerivativePayload } from './DerivativeCommand.js';
 import { EvalCommand, type EvalPayload } from './EvalCommand.js';
 import { ForceEvalCommand, type ForceEvalPayload } from './ForceEvalCommand.js';
+import { IntegralCommand, type IntegralPayload } from './IntegralCommand.js';
+import { LimitCommand, type LimitPayload } from './LimitCommand.js';
 import { TheoremArtifactCommand, type TheoremArtifactPayload } from './TheoremArtifactCommand.js';
 import { TheoremMartialCommand } from './TheoremMartialCommand.js';
 import { TrapCommand, type TrapPayload } from './TrapCommand.js';
@@ -25,15 +27,17 @@ export type CommandIntent =
   | { intent: 'eval'; payload: EvalPayload }
   | { intent: 'draw'; payload: DrawPayload }
   | { intent: 'derivative'; payload: DerivativePayload }
+  | { intent: 'integral'; payload: IntegralPayload }
+  | { intent: 'limit'; payload: LimitPayload }
   | { intent: 'build-function'; payload: BuildFunctionCommandPayload }
   | { intent: 'play-defense'; payload: PlayDefensePayload };
 
 export class CommandDispatcher {
-  dispatch(state: CommandState, context: CommandContext | undefined, intent: CommandIntent): CommandResult {
+  dispatch(state: CommandState, context: CommandContext | undefined, intent: CommandIntent): CommandResult | Promise<CommandResult> {
     const command = this.create(intent) as GameCommand<unknown>;
     command.state = state;
     command.roomRef = context;
-    return command.execute(intent.payload) as CommandResult;
+    return command.execute(intent.payload);
   }
 
   private create(intent: CommandIntent): GameCommand<unknown> {
@@ -49,6 +53,8 @@ export class CommandDispatcher {
       case 'eval': return new EvalCommand() as GameCommand<unknown>;
       case 'draw': return new DrawCommand() as GameCommand<unknown>;
       case 'derivative': return new DerivativeCommand() as GameCommand<unknown>;
+      case 'integral': return new IntegralCommand() as GameCommand<unknown>;
+      case 'limit': return new LimitCommand() as GameCommand<unknown>;
       case 'build-function': return new BuildFunctionCommand() as GameCommand<unknown>;
       case 'play-defense': return new PlayDefenseCommand() as GameCommand<unknown>;
     }

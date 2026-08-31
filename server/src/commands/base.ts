@@ -112,6 +112,8 @@ export abstract class GameCommand<Payload> extends Command<CommandState, Payload
   /** Compatibility hook for isolated command tests and the future T13 engine. */
   public roomRef?: CommandContext;
 
+  abstract execute(payload: Payload): CommandResult | Promise<CommandResult>;
+
   protected gameState(): CommandState {
     return this.state;
   }
