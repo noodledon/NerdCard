@@ -30,32 +30,32 @@ describe('build_function → construction → draw', () => {
     expect(game.state.phase).toBe(Phase.construction);
   });
 
-  it('stays in construction after only one player builds', () => {
+  it('stays in construction after only one player builds', async () => {
     const game = harness();
     const boardId = boardIdFor(game, 'p1');
-    const result = game.dispatchIntent('p1', 'build_function', {
+    const result = await Promise.resolve(game.dispatchIntent('p1', 'build_function', {
       boardId,
       expression: 'x^2',
-    });
+    }));
     expect(result.ok).toBe(true);
     expect(game.state.phase).toBe(Phase.construction);
   });
 
-  it('advances to draw after both players build', () => {
+  it('advances to draw after both players build', async () => {
     const game = harness();
     const b1 = boardIdFor(game, 'p1');
     const b2 = boardIdFor(game, 'p2');
-    expect(game.dispatchIntent('p1', 'build_function', { boardId: b1, expression: 'x^2' }).ok).toBe(true);
-    expect(game.dispatchIntent('p2', 'build_function', { boardId: b2, expression: 'x^3+x' }).ok).toBe(true);
+    expect((await Promise.resolve(game.dispatchIntent('p1', 'build_function', { boardId: b1, expression: 'x^2' }))).ok).toBe(true);
+    expect((await Promise.resolve(game.dispatchIntent('p2', 'build_function', { boardId: b2, expression: 'x^3+x' }))).ok).toBe(true);
     expect(game.state.phase).toBe(Phase.draw);
   });
 
-  it('writes the expression onto the board AND advances', () => {
+  it('writes the expression onto the board AND advances', async () => {
     const game = harness();
     const b1 = boardIdFor(game, 'p1');
     const b2 = boardIdFor(game, 'p2');
-    game.dispatchIntent('p1', 'build_function', { boardId: b1, expression: 'x^2' });
-    game.dispatchIntent('p2', 'build_function', { boardId: b2, expression: 'x^3+x' });
+    await Promise.resolve(game.dispatchIntent('p1', 'build_function', { boardId: b1, expression: 'x^2' }));
+    await Promise.resolve(game.dispatchIntent('p2', 'build_function', { boardId: b2, expression: 'x^3+x' }));
     const p1Board = [...game.getPlayer('p1')!.boards][0];
     const p2Board = [...game.getPlayer('p2')!.boards][0];
     expect(p1Board?.expression).toBe('x^2');
@@ -63,21 +63,21 @@ describe('build_function → construction → draw', () => {
     expect(game.state.phase).toBe(Phase.draw);
   });
 
-  it('rejects build_function outside construction', () => {
+  it('rejects build_function outside construction', async () => {
     const game = harness();
     const b1 = boardIdFor(game, 'p1');
     const b2 = boardIdFor(game, 'p2');
-    game.dispatchIntent('p1', 'build_function', { boardId: b1, expression: 'x^2' });
-    game.dispatchIntent('p2', 'build_function', { boardId: b2, expression: 'x^3+x' });
+    await Promise.resolve(game.dispatchIntent('p1', 'build_function', { boardId: b1, expression: 'x^2' }));
+    await Promise.resolve(game.dispatchIntent('p2', 'build_function', { boardId: b2, expression: 'x^3+x' }));
     // now in draw — a further build should fail
-    const result = game.dispatchIntent('p1', 'build_function', { boardId: b1, expression: 'x+1' });
+    const result = await Promise.resolve(game.dispatchIntent('p1', 'build_function', { boardId: b1, expression: 'x+1' }));
     expect(result.ok).toBe(false);
   });
 
-  it('rejects an invalid expression without advancing', () => {
+  it('rejects an invalid expression without advancing', async () => {
     const game = harness();
     const b1 = boardIdFor(game, 'p1');
-    const result = game.dispatchIntent('p1', 'build_function', { boardId: b1, expression: 'this is not math' });
+    const result = await Promise.resolve(game.dispatchIntent('p1', 'build_function', { boardId: b1, expression: 'this is not math' }));
     expect(result.ok).toBe(false);
     expect(game.state.phase).toBe(Phase.construction);
   });
@@ -92,8 +92,8 @@ describe('draw_cards → draw → play', () => {
     const b1 = boardIdFor(game, 'p1');
     const b2 = boardIdFor(game, 'p2');
     // Both build to advance to draw
-    game.dispatchIntent('p1', 'build_function', { boardId: b1, expression: 'x^2' });
-    game.dispatchIntent('p2', 'build_function', { boardId: b2, expression: 'x^3+x' });
+    void game.dispatchIntent('p1', 'build_function', { boardId: b1, expression: 'x^2' });
+    void game.dispatchIntent('p2', 'build_function', { boardId: b2, expression: 'x^3+x' });
     return game;
   }
 
@@ -102,34 +102,34 @@ describe('draw_cards → draw → play', () => {
     expect(game.state.phase).toBe(Phase.draw);
   });
 
-  it('advances to play after drawing cards', () => {
+  it('advances to play after drawing cards', async () => {
     const game = drawHarness();
-    const result = game.dispatchIntent('p1', 'draw_cards', {
+    const result = await Promise.resolve(game.dispatchIntent('p1', 'draw_cards', {
       deckChoices: [{ deck: 'fcc', count: 1 }, { deck: 'number', count: 1 }],
-    });
+    }));
     expect(result.ok).toBe(true);
     expect(game.state.phase).toBe(Phase.play);
   });
 
-  it('puts drawn cards in the hand', () => {
+  it('puts drawn cards in the hand', async () => {
     const game = drawHarness();
     const prevHand = [...game.getPlayer('p1')!.hand].length;
-    const result = game.dispatchIntent('p1', 'draw_cards', {
+    const result = await Promise.resolve(game.dispatchIntent('p1', 'draw_cards', {
       deckChoices: [{ deck: 'fcc', count: 2 }],
-    });
+    }));
     expect(result.ok).toBe(true);
     expect([...game.getPlayer('p1')!.hand].length).toBe(prevHand + 2);
   });
 
-  it('rejects draw_cards after already in play', () => {
+  it('rejects draw_cards after already in play', async () => {
     const game = drawHarness();
-    game.dispatchIntent('p1', 'draw_cards', {
+    await Promise.resolve(game.dispatchIntent('p1', 'draw_cards', {
       deckChoices: [{ deck: 'fcc', count: 2 }],
-    });
+    }));
     // Now in play — second draw should fail
-    const result = game.dispatchIntent('p1', 'draw_cards', {
+    const result = await Promise.resolve(game.dispatchIntent('p1', 'draw_cards', {
       deckChoices: [{ deck: 'fcc', count: 2 }],
-    });
+    }));
     expect(result.ok).toBe(false);
   });
 });

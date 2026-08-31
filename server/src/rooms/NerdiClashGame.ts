@@ -108,7 +108,7 @@ export class NerdiClashGame {
 
   // ─── Intent dispatch ───────────────────────────────────────────────────────
 
-  dispatchIntent(sessionId: string, intent: string, payload: Record<string, unknown>): CommandResult {
+  dispatchIntent(sessionId: string, intent: string, payload: Record<string, unknown>): CommandResult | Promise<CommandResult> {
     if (intent === 'ready_inst') {
       return { ok: true };
     }
@@ -123,13 +123,17 @@ export class NerdiClashGame {
           intent: 'draw',
           payload: { playerId: sessionId, deck: choice.deck, count: choice.count },
         });
+        // DrawCommand is always synchronous, but dispatchCommand's return type
+        // is the union. Guard for type safety.
+        if (result instanceof Promise) {
+          return result.then((resolved) => {
+            if (!resolved.ok) return resolved;
+            return this.finalizeDraw(sessionId);
+          });
+        }
         if (!result.ok) return result;
       }
-      // Advance draw → play so the turn owner can play drawn cards and
-      // evaluate. The FSM allows draw: [play, gameOver]; nothing else
-      // would trigger this transition.
-      this.phaseController.requestTransition(Phase.play);
-      return { ok: true };
+      return this.finalizeDraw(sessionId);
     }
 
     const commandIntent = this.toCommandIntent(sessionId, intent, payload);
@@ -137,6 +141,24 @@ export class NerdiClashGame {
       return { ok: false, reason: `unsupported intent ${intent}` };
     }
     const result = this.dispatchCommand(commandIntent);
+    if (result instanceof Promise) {
+      return result.then((resolved) => this.applyPostPlayProcessing(resolved, intent, payload, sessionId));
+    }
+    return this.applyPostPlayProcessing(result, intent, payload, sessionId);
+  }
+
+  private finalizeDraw(sessionId: string): CommandResult {
+    this.phaseController.requestTransition(Phase.play);
+    void sessionId;
+    return { ok: true };
+  }
+
+  private applyPostPlayProcessing(
+    result: CommandResult,
+    intent: string,
+    payload: Record<string, unknown>,
+    sessionId: string,
+  ): CommandResult {
     if (result.ok && intent === 'build_function') {
       const board = this.findBoardForPlayer(sessionId, String(payload.boardId));
       const domain = (board?.domain ?? 'poly') as BaseDomain;
@@ -333,7 +355,7 @@ export class NerdiClashGame {
     return [...player.boards].find((b) => b?.boardId === boardId);
   }
 
-  private dispatchCommand(commandIntent: CommandIntent): CommandResult {
+  private dispatchCommand(commandIntent: CommandIntent): CommandResult | Promise<CommandResult> {
     return this.commandDispatcher.dispatch(this.state as unknown as CommandState, {
       evalEngine: { evaluate },
       emitGameEvent: (event, actorId, details) => this.emitGameEvent(event, actorId, details ?? {}),
@@ -428,9 +450,10 @@ export class NerdiClashGame {
               ? { intent: 'composition', payload: { playerId, cardId, outerBoardId, innerBoardId } }
               : undefined;
           }
-          // Integral and limit are deliberate v1 math-engine stubs; all other
-          // unimplemented catalog effects must reject rather than masquerading
-          // as an HP attack.
+          case 'integral':
+            return { intent: 'integral', payload: { playerId, cardId, boardId } };
+          case 'limit':
+            return { intent: 'limit', payload: { playerId, cardId, boardId } };
           default:
             return undefined;
         }

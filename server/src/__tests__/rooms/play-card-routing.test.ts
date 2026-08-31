@@ -2,7 +2,7 @@ import { describe, expect, it } from 'vitest';
 import { getCardById } from '../../data/load-catalog.js';
 import { Phase } from '../../logic/fsm.js';
 import { NerdiClashGame } from '../../rooms/NerdiClashGame.js';
-import { catalogCardToSchema } from '../../state/schema.js';
+import { catalogCardToSchema, type FunctionBoardSchema } from '../../state/schema.js';
 
 function gameInPlay(): NerdiClashGame {
   const game = new NerdiClashGame();
@@ -20,57 +20,66 @@ function giveCard(game: NerdiClashGame, playerId: string, cardId: string): void 
   player.handCount = player.hand.length;
 }
 
+function firstBoard(game: NerdiClashGame, playerId: string): FunctionBoardSchema {
+  const board = game.getPlayer(playerId)?.boards[0];
+  if (!board) throw new Error(`missing board for ${playerId}`);
+  return board;
+}
+
 describe('play_card routing', () => {
-  it('rejects a raw play_card payload without target instead of throwing', () => {
+  it('rejects a raw play_card payload without target instead of throwing', async () => {
     const game = gameInPlay();
 
     expect(() => game.dispatchIntent('p1', 'play_card', {
       cardId: 'not-in-hand',
     })).not.toThrow();
-    expect(game.dispatchIntent('p1', 'play_card', {
+    const result = await Promise.resolve(game.dispatchIntent('p1', 'play_card', {
       cardId: 'not-in-hand',
-    })).toEqual({ ok: false, reason: 'unsupported intent play_card' });
+    }));
+    expect(result).toEqual({ ok: false, reason: 'unsupported intent play_card' });
   });
 
-  it('routes Add Term to the board modifier rather than HP damage', () => {
+  it('routes Add Term to the board modifier rather than HP damage', async () => {
     const game = gameInPlay();
     const p1 = game.getPlayer('p1');
     const p2 = game.getPlayer('p2');
     if (!p1 || !p2) throw new Error('players missing');
-    p1.boards[0]!.expression = 'x^2';
+    firstBoard(game, 'p1').expression = 'x^2';
     p2.hp10 = 100;
     giveCard(game, 'p1', 'fcc-add-term-001');
 
-    const result = game.dispatchIntent('p1', 'play_card', {
+    const result = await Promise.resolve(game.dispatchIntent('p1', 'play_card', {
       cardId: 'fcc-add-term-001',
       target: { kind: 'none' },
-    });
+    }));
 
     expect(result).toEqual({ ok: true });
-    expect(p1.boards[0]!.expression).toBe('(x^2) + (t)');
+    expect(firstBoard(game, 'p1').expression).toBe('(x^2) + (t)');
     expect(p2.hp10).toBe(100);
   });
 
-  it('routes Derivative to the board modifier rather than HP damage', () => {
+  it('routes Derivative to the board modifier rather than HP damage', async () => {
     const game = gameInPlay();
     const p1 = game.getPlayer('p1');
     const p2 = game.getPlayer('p2');
     if (!p1 || !p2) throw new Error('players missing');
-    p1.boards[0]!.expression = 'x^2';
+    firstBoard(game, 'p1').expression = 'x^2';
     p2.hp10 = 100;
     giveCard(game, 'p1', 'fcc-calc-derivative-001');
 
-    const result = game.dispatchIntent('p1', 'play_card', {
+    const result = await Promise.resolve(game.dispatchIntent('p1', 'play_card', {
       cardId: 'fcc-calc-derivative-001',
       target: { kind: 'none' },
-    });
+    }));
 
     expect(result).toEqual({ ok: true });
-    expect(p1.boards[0]!.expression).toBe('2 * x');
+    expect(firstBoard(game, 'p1').expression).toBe('2 * x');
     expect(p2.hp10).toBe(100);
   });
 
-  it('rejects unsupported integral and limit cards without changing opponent HP', () => {
+  it.skipIf(process.env.USE_SYMPY === 'true')(
+    'rejects unsupported integral and limit cards without changing opponent HP',
+    async () => {
     const game = gameInPlay();
     const p2 = game.getPlayer('p2');
     if (!p2) throw new Error('opponent missing');
@@ -78,19 +87,20 @@ describe('play_card routing', () => {
     giveCard(game, 'p1', 'fcc-calc-integral-001');
     giveCard(game, 'p1', 'fcc-calc-limit-001');
 
-    const integral = game.dispatchIntent('p1', 'play_card', {
+    const integral = await Promise.resolve(game.dispatchIntent('p1', 'play_card', {
       cardId: 'fcc-calc-integral-001',
       target: { kind: 'none' },
-    });
-    const limit = game.dispatchIntent('p1', 'play_card', {
+    }));
+    const limit = await Promise.resolve(game.dispatchIntent('p1', 'play_card', {
       cardId: 'fcc-calc-limit-001',
       target: { kind: 'none' },
-    });
+    }));
 
     expect(integral.ok).toBe(false);
     expect(limit.ok).toBe(false);
     expect(p2.hp10).toBe(100);
-  });
+    },
+  );
 
   it('gives every player the five documented Variable Anchor cards at setup', () => {
     const game = new NerdiClashGame();
