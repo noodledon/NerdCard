@@ -1,6 +1,6 @@
 import { listVariables } from '../math/counters.js';
 import { parseExpression } from '../math/expressions.js';
-import { mathjsEngine } from '../math/mathjs-engine.js';
+import { mathEngine } from '../math/index.js';
 import {
   failure,
   findBoard,
@@ -45,7 +45,7 @@ export class DerivativeCommand extends GameCommand<DerivativePayload> {
       const selectedVariable = variable?.trim()
         || listVariables(parseExpression(board.expression))[0]
         || 'x';
-      board.expression = mathjsEngine.derivative(board.expression, selectedVariable);
+      board.expression = mathEngine.derivative(board.expression, selectedVariable);
     } catch (error) {
       return failure(error instanceof Error ? error.message : 'derivative failed');
     }

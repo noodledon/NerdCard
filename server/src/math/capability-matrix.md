@@ -1,4 +1,4 @@
-# Math Engine Capability Matrix — v1. FROZEN scope: math.js GREEN/YELLOW + SymPy stubs RED. Do not extend without plan revision.
+# Math Engine Capability Matrix — v1. FROZEN scope: math.js GREEN/YELLOW + SymPy-backed YELLOW. Do not extend without plan revision.
 
 | Method | Implemented By | Status | Notes |
 |---|---|---|---|
@@ -6,9 +6,9 @@
 | toString | math.js | GREEN | unwrap + `node.toString()` |
 | evaluate | math.js | GREEN | `parse` → `compile` → `evaluate(scope)`; numbers returned directly, Complex/Matrix wrapped |
 | derivative | math.js | GREEN | `math.derivative(node, var)` |
-| integrate | stub | RED | SymPy Wave 3; returns `supported: false` |
-| limit | stub | RED | SymPy Wave 3; returns `supported: false` |
-| continuityCheck | stub | RED | SymPy Wave 3; returns `supported: false` |
+| integrate | hybrid (SymPy when USE_SYMPY=true) | YELLOW | SymPy microservice when USE_SYMPY=true; mathjs stub returns `supported: false` otherwise |
+| limit | hybrid (SymPy when USE_SYMPY=true) | YELLOW | SymPy microservice when USE_SYMPY=true; mathjs stub returns `supported: false` otherwise |
+| continuityCheck | hybrid (SymPy when USE_SYMPY=true) | YELLOW | SymPy microservice when USE_SYMPY=true; mathjs stub returns `supported: false` otherwise |
 | simplify | math.js | GREEN | `math.simplify(node)` |
 | rationalize | math.js | GREEN | `math.rationalize(node)` |
 | symbolicEqual | math.js | GREEN | `math.symbolicEqual(nodeA, nodeB)` |
@@ -21,8 +21,8 @@
 | expm | math.js | GREEN | `math.expm(matrix)` via Padé approximant |
 | sqrtm | math.js | GREEN | `math.sqrtm(matrix)` |
 | lusolve | math.js | GREEN | `math.lusolve(A, b)` |
-| rref | stub | RED | SymPy Wave 3 or custom TS later; returns `supported: false` |
-| rank | stub | RED | SymPy Wave 3; returns `supported: false` |
+| rref | hybrid (SymPy when USE_SYMPY=true) | YELLOW | SymPy microservice when USE_SYMPY=true; mathjs stub returns `supported: false` otherwise |
+| rank | hybrid (SymPy when USE_SYMPY=true) | YELLOW | SymPy microservice when USE_SYMPY=true; mathjs stub returns `supported: false` otherwise |
 | gcd | math.js | GREEN | `math.gcd(a, b)` |
 | lcm | math.js | GREEN | `math.lcm(a, b)` |
 | mod | math.js | GREEN | `math.mod(a, b)` — positive remainder |
