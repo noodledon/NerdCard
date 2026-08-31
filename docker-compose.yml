@@ -1,0 +1,38 @@
+services:
+  server:
+    build:
+      context: ./server
+      dockerfile: Dockerfile
+    container_name: nerdicard-server
+    ports:
+      - "2567:2567"
+      - "2568:2568"
+    environment:
+      - NODE_ENV=production
+      - USE_SYMPY=true
+      - SYMPY_URL=http://sympy:2569
+    depends_on:
+      sympy:
+        condition: service_healthy
+    networks:
+      - nerdicard
+
+  sympy:
+    build:
+      context: ./sympy-service
+      dockerfile: Dockerfile
+    container_name: nerdicard-sympy
+    ports:
+      - "2569:2569"
+    healthcheck:
+      test: ["CMD", "python", "-c", "import urllib.request; urllib.request.urlopen('http://localhost:2569/health')"]
+      interval: 5s
+      timeout: 3s
+      retries: 10
+      start_period: 10s
+    networks:
+      - nerdicard
+
+networks:
+  nerdicard:
+    driver: bridge
