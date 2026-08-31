@@ -69,22 +69,22 @@ export interface MathEngine {
   /** Symbolic derivative. Returns a string expression. */
   derivative(expr: string, variable: string): string;
 
-  /** Symbolic integration — STUBBED (SymPy Wave 3). */
-  integrate(expr: string, variable: string): EngineResult;
+  /** Symbolic integration — SymPy-backed when USE_SYMPY=true, stub otherwise. */
+  integrate(expr: string, variable: string): EngineResult | Promise<EngineResult>;
 
-  /** Limit evaluation — STUBBED (SymPy Wave 3). */
+  /** Limit evaluation — SymPy-backed when USE_SYMPY=true, stub otherwise. */
   limit(
     expr: string,
     variable: string,
     approach: number | string,
-  ): EngineResult;
+  ): EngineResult | Promise<EngineResult>;
 
-  /** Continuity check at a point — STUBBED (SymPy Wave 3). */
+  /** Continuity check at a point — SymPy-backed when USE_SYMPY=true, stub otherwise. */
   continuityCheck(
     expr: string,
     variable: string,
     point: number,
-  ): EngineResult;
+  ): EngineResult | Promise<EngineResult>;
 
   // ── Algebra / Simplification ───────────────────────────────────────
   /** Simplify an expression string. */
@@ -124,11 +124,11 @@ export interface MathEngine {
   /** Solve linear system Ax = b via LU. */
   lusolve(matrix: string, b: string): string;
 
-  /** Reduced Row Echelon Form — STUBBED (SymPy Wave 3). */
-  rref(matrix: string): EngineResult;
+  /** Reduced Row Echelon Form — SymPy-backed when USE_SYMPY=true, stub otherwise. */
+  rref(matrix: string): EngineResult | Promise<EngineResult>;
 
-  /** Matrix rank — STUBBED (SymPy Wave 3). */
-  rank(matrix: string): EngineResult;
+  /** Matrix rank — SymPy-backed when USE_SYMPY=true, stub otherwise. */
+  rank(matrix: string): EngineResult | Promise<EngineResult>;
 
   // ── Number Theory ──────────────────────────────────────────────────
   /** Greatest common divisor of two integers. */

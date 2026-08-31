@@ -57,7 +57,7 @@ function eigsResult(values: number[], partial: boolean): EngineResult {
   };
 }
 
-export const mathjsEngine: MathEngine = {
+export const mathjsEngine = {
   parse(expr: string): EngineNode {
     return wrap(math.parse(expr));
   },
