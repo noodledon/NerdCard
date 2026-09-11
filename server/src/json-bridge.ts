@@ -1,6 +1,7 @@
 import http from 'http';
 import { WebSocket, WebSocketServer } from 'ws';
 import { NerdiClashGame } from './rooms/NerdiClashGame.js';
+import { Phase } from './logic/fsm.js';
 import { ErrorCode } from './shared/ErrorCode.js';
 import { parseClientMessage } from './shared/messages.js';
 
@@ -120,6 +121,7 @@ export class JsonBridgeServer {
   private handleJoin(ws: WebSocket, msg: Record<string, unknown>): void {
     if (!this.game) {
       this.game = new NerdiClashGame();
+      this.game.setEventListener((ev) => this.broadcastGameEvent(ev));
     }
 
     const displayName = typeof msg.displayName === 'string' ? msg.displayName : undefined;
@@ -136,6 +138,7 @@ export class JsonBridgeServer {
         const role: 'p1' | 'p2' = [...this.game.state.players.keys()][0] === rejoinId ? 'p1' : 'p2';
         this.clients.set(rejoinId, { ws, sessionId: rejoinId, role });
         this.send(ws, { type: 'joined', sessionId: rejoinId, role });
+        this.sendDefenseResumedIfNeeded(ws);
         this.broadcastSnapshots();
         return;
       }
@@ -154,6 +157,7 @@ export class JsonBridgeServer {
     this.clients.set(sessionId, { ws, sessionId, role });
 
     this.send(ws, { type: 'joined', sessionId, role });
+    this.sendDefenseResumedIfNeeded(ws);
 
     if (this.game.playerCount() === 2) {
       this.game.startGame();
@@ -176,6 +180,37 @@ export class JsonBridgeServer {
     // player state) lets a fresh game start cleanly on the next join.
     if (this.clients.size === 0) {
       this.game = undefined;
+    }
+  }
+
+  // Mirrors NerdiClashRoom's game_event broadcast — the Colyseus path wraps
+  // details into a JSON string; the JSON bridge sends them natively.
+  private broadcastGameEvent(ev: { event: string; actorId: string; details: Record<string, unknown> }): void {
+    if (!this.game) return;
+    const payload = {
+      type: 'game_event',
+      event: ev.event,
+      actorId: ev.actorId,
+      turnId: this.game.state.turnIndex,
+      details: ev.details,
+    };
+    for (const client of this.clients.values()) {
+      this.send(client.ws, payload);
+    }
+  }
+
+  // A (re)joining defender needs the open window + deadline — mirrors the
+  // room's onJoin defense_resumed event.
+  private sendDefenseResumedIfNeeded(ws: WebSocket): void {
+    if (!this.game) return;
+    if (this.game.state.phase === Phase.defense && this.game.state.turnDeadline > Date.now()) {
+      this.send(ws, {
+        type: 'game_event',
+        event: 'defense_resumed',
+        actorId: '',
+        turnId: this.game.state.turnIndex,
+        details: { deadline: this.game.state.turnDeadline },
+      });
     }
   }
 
@@ -220,6 +255,9 @@ export class JsonBridgeServer {
       this.tickInterval = undefined;
     }
     this.wss?.close();
+    this.wss = undefined;
+    this.httpServer?.close();
+    this.httpServer = undefined;
     for (const client of this.clients.values()) {
       client.ws.close();
     }
