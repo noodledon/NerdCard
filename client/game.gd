@@ -158,6 +158,8 @@ func _on_state_changed(_snapshot: Dictionary) -> void:
 func _on_connection_error(code: String, message: String) -> void:
 	if code == "ERR_CONNECT_FAILED" or code == "ERR_CONNECT":
 		status_label.text = "Connection failed"
+	elif code == "ERR_DISCONNECTED" or code == "ROOM_FULL" or code == "SEAT_GONE":
+		status_label.text = "Disconnected"
 	## Server rejections (INVALID_TARGET etc.) surface here too — the dumb
 	## client's only feedback channel for refused intents is the error modal.
 	_show_error(code, message)
@@ -631,6 +633,10 @@ func _on_card_clicked(card_id: String) -> void:
 		if String(local_player.get("trapCardId", "")) != "":
 			_show_error("", "Trap slot already occupied")
 			return
+		## `trigger` is ignored server-side (toCommandIntent drops it — the
+		## server derives trap behavior from the card). Kept only because
+		## SetTrapSchema still requires the field; harmless once it becomes
+		## optional (wave-7 T6).
 		ConnectionManager.send_intent("set_trap", {
 			"cardId": card_id,
 			"trigger": "on_force_eval",

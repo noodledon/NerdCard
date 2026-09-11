@@ -15,8 +15,10 @@
 ##     mirrors ServerMessage's StateSnapshotSchema; `{"type": "error", "code",
 ##     "message", "retryable"}` mirrors ServerErrorSchema.
 ##   Join handshake: `{"type": "join_room", "room": "nerdiclash",
-##     "displayName": <optional>}` outbound, `{"type": "joined",
-##     "sessionId": "...", "role": "p1"|"p2"}` inbound.
+##     "displayName": <optional>, "sessionId": <optional>}` outbound,
+##     `{"type": "joined", "sessionId": "...", "role": "p1"|"p2"}` inbound.
+##     Sending the prior sessionId reclaims a disconnected seat
+##     (json-bridge.ts handleJoin reconnection branch).
 ##
 ## Transport reality: the JSON bridge (server/src/json-bridge.ts) is live at
 ## ws://localhost:2568 — outside the Zod ClientMessage union by design. It
@@ -32,11 +34,25 @@ signal error(code: String, message: String)
 
 const RawWsClientScript = preload("res://scripts/raw-ws-client.gd")
 
+## Delay before the single auto-retry after a drop — gives the bridge a
+## beat to process the old socket's close (mark the seat isConnected=false)
+## so the reclaim branch in handleJoin can see it. One retry, no backoff.
+const RETRY_DELAY_SEC: float = 1.0
+
 var ws: Node = null
 var endpoint: String = "ws://localhost:2568"
 var room_name: String = "nerdiclash"
 var display_name: String = ""
 var _joined: bool = false
+## True while the in-flight join_room carried a stored sessionId — set in
+## _on_ws_connected, consumed by the "joined"/"error" branches.
+var _rejoin_attempted: bool = false
+## The one permitted auto-retry per connection sequence (T5 reconnect).
+var _auto_retried: bool = false
+## Set when ROOM_FULL was just surfaced — the bridge closes the socket
+## right after, and the resulting disconnect must not clobber that
+## distinct "seat gone" message with a generic drop notice.
+var _room_full_notified: bool = false
 
 
 func _ready() -> void:
@@ -52,6 +68,8 @@ func connect_to_server(url: String, name_hint: String = "") -> void:
 	endpoint = url
 	display_name = name_hint
 	_joined = false
+	_auto_retried = false
+	_room_full_notified = false
 	var err: int = ws.connect_to(url)
 	if err != OK:
 		emit_signal("error", "ERR_CONNECT", "Failed to start connection to %s" % url)
@@ -61,12 +79,42 @@ func _on_ws_connected() -> void:
 	var join_msg: Dictionary = {"type": "join_room", "room": room_name}
 	if display_name != "":
 		join_msg["displayName"] = display_name
+	## Seat reclaim (T5): a held sessionId always rides along on join_room,
+	## so both the auto-retry and a manual Connect act as "Reconnect". The
+	## bridge falls through to a fresh join when the seat is gone.
+	_rejoin_attempted = GameModel.local_session_id != ""
+	if _rejoin_attempted:
+		join_msg["sessionId"] = GameModel.local_session_id
 	ws.send_json(join_msg)
 
 
 func _on_ws_disconnected() -> void:
+	## Transient drop: keep GameModel.state and local_session_id — the
+	## bridge marks the seat isConnected=false but holds it, and resumed
+	## snapshots resync the UI. GameModel.reset() is reserved for a fresh
+	## seat (see the "joined" branch).
 	_joined = false
-	GameModel.reset()
+	if _room_full_notified:
+		_room_full_notified = false
+		return
+	if not _auto_retried:
+		_auto_retried = true
+		emit_signal("error", "ERR_DISCONNECTED", "Connection lost — retrying…")
+		get_tree().create_timer(RETRY_DELAY_SEC).timeout.connect(_retry_connect)
+	else:
+		emit_signal("error", "ERR_DISCONNECTED", "Connection lost — press Connect to rejoin")
+
+
+## The single auto-retry after a drop. Re-dials the same endpoint; the held
+## sessionId makes _on_ws_connected send a reclaim join. RawWsClient
+## dedupes the dial if a manual Connect already re-connected within the
+## delay window.
+func _retry_connect() -> void:
+	if _joined:
+		return
+	var err: int = ws.connect_to(endpoint)
+	if err != OK:
+		emit_signal("error", "ERR_CONNECT", "Reconnect failed — press Connect to rejoin")
 
 
 func _on_ws_connection_failed(reason: String) -> void:
@@ -78,14 +126,35 @@ func _on_ws_message(data: Dictionary) -> void:
 	var msg_type: String = String(data.get("type", ""))
 	match msg_type:
 		"joined":
+			var new_session_id: String = String(data.get("sessionId", ""))
+			var seat_reclaimed: bool = new_session_id != "" and new_session_id == GameModel.local_session_id
+			if not seat_reclaimed:
+				## Fresh seat — first join, or the held sessionId was not a
+				## disconnected seat and the bridge fell through to a new
+				## join (old game torn down). Drop the dead game's state.
+				if _rejoin_attempted:
+					emit_signal("error", "SEAT_GONE", "Previous game is gone — joined a new room")
+				GameModel.reset()
+			_rejoin_attempted = false
+			_auto_retried = false
 			_joined = true
-			GameModel.local_session_id = String(data.get("sessionId", ""))
+			GameModel.local_session_id = new_session_id
 			emit_signal("connected", String(data.get("role", "")))
 		"state_snapshot":
 			GameModel.state = data.get("state", {})
 			emit_signal("state_changed", GameModel.state)
 		"error":
-			emit_signal("error", String(data.get("code", "UNKNOWN")), String(data.get("message", "")))
+			var code: String = String(data.get("code", "UNKNOWN"))
+			var message: String = String(data.get("message", ""))
+			if code == "ROOM_FULL":
+				## A reclaim join that still gets ROOM_FULL means the seat
+				## is truly gone (or never ours). Drop the held id so the
+				## next Connect is a clean fresh join, and say so plainly
+				## instead of surfacing a generic connect error.
+				GameModel.local_session_id = ""
+				_room_full_notified = true
+				message = "Room full / seat gone — try again once a seat frees up"
+			emit_signal("error", code, message)
 		"ack":
 			pass
 		_:

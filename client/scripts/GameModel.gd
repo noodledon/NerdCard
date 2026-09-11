@@ -26,8 +26,10 @@ extends Node
 ##          consecutive_no_eval_turns, global_no_eval_turns }
 var state: Dictionary = {}
 
-## This client's own session id, set once ConnectionManager receives
-## join_ok / connected.
+## This client's own session id, set by ConnectionManager on "joined".
+## Survives a transient disconnect so a rejoin can reclaim the seat
+## (wave-7 T5); cleared only here in reset() — called on a fresh seat —
+## or when a reclaim is rejected with ROOM_FULL.
 var local_session_id: String = ""
 
 ## Selected variable-value card id (chosen in hand before an eval_function
