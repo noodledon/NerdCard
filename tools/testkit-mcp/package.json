@@ -1,0 +1,7 @@
+{
+  "name": "nerdicard-testkit-mcp",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "description": "Repo-local Godot playtest harness: one MCP server hosts N Godot clients via dial-out TCP. No deps."
+}

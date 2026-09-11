@@ -15,6 +15,14 @@
       "env": {
         "GODOT_PATH": "/Applications/Godot.app/Contents/MacOS/Godot"
       }
+    },
+    "testkit": {
+      "type": "stdio",
+      "command": "node",
+      "args": ["/Users/loloolooo/NerdCard/tools/testkit-mcp/server.mjs"],
+      "env": {
+        "GODOT_PATH": "/Applications/Godot.app/Contents/MacOS/Godot"
+      }
     }
   }
 }
