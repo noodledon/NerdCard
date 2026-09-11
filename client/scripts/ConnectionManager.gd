@@ -18,13 +18,11 @@
 ##     "displayName": <optional>}` outbound, `{"type": "joined",
 ##     "sessionId": "...", "role": "p1"|"p2"}` inbound.
 ##
-## IMPORTANT — see report.md "Wave 5 inconsistencies": `join_room` / `joined`
-## are NOT part of the current server Zod contract (messages.ts only defines
-## the ten ClientMessage types + eight ServerMessage types, none of which
-## covers initial join/session-identity). The server-side JSON text-frame
-## bridge flagged as required Wave 2 work in colyseus-verify.md was never
-## built. This file defines the client-side half of that contract so the
-## eventual bridge has an exact, already-implemented target to match.
+## Transport reality: the JSON bridge (server/src/json-bridge.ts) is live at
+## ws://localhost:2568 — outside the Zod ClientMessage union by design. It
+## accepts `join_room`, replies `joined` (sessionId + role), answers each
+## intent with `ack`/`error`, and streams a per-player-filtered
+## `state_snapshot` every 100ms.
 
 extends Node
 

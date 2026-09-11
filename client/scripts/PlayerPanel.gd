@@ -143,7 +143,7 @@ func update_from_player(player: Dictionary, display_name_fallback: String = "", 
 
 	var trap_card_id: String = String(player.get("trapCardId", ""))
 	var trap_set: bool = trap_card_id != ""
-	trap_slot_indicator.text = "Trap: set" if trap_set else "Trap: empty"
+	trap_slot_indicator.text = "Trap set" if trap_set else "Trap: empty"
 	trap_slot_indicator.add_theme_color_override("font_color", TRAP_ORANGE if trap_set else TEXT_DIM)
 
 	var boards: Array = player.get("boards", [])

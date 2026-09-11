@@ -36,11 +36,17 @@ var local_session_id: String = ""
 ## never written by ConnectionManager.
 var selected_variable_value_card_id: String = ""
 
+## Selected number-factor card id (Prime/Irrational hand cards bound into an
+## offensive play_card as numberFactorCardIds). Same ownership/lifecycle as
+## selected_variable_value_card_id.
+var selected_factor_card_id: String = ""
+
 
 func reset() -> void:
 	state = {}
 	local_session_id = ""
 	selected_variable_value_card_id = ""
+	selected_factor_card_id = ""
 
 
 func local_player() -> Dictionary:

@@ -46,6 +46,8 @@ extends Node2D
 @onready var error_label: Label = $CanvasLayer/MarginContainer/ScrollContainer/VBoxContainer/ErrorModal/ErrorLabel
 @onready var error_dismiss_timer: Timer = $CanvasLayer/MarginContainer/ScrollContainer/VBoxContainer/ErrorModal/ErrorDismissTimer
 
+@onready var main_vbox: VBoxContainer = $CanvasLayer/MarginContainer/ScrollContainer/VBoxContainer
+
 const CardButtonScript = preload("res://scripts/CardButton.gd")
 
 ## Friendly display text for each server phase string. Keys are the exact
@@ -77,11 +79,44 @@ const PHASE_COLORS: Dictionary = {
 }
 const PHASE_DEFAULT_COLOR: Color = Color(0.878, 0.878, 0.878)
 
+## Human-readable labels for the server's winReason strings (see
+## GameOverSchema in server/src/shared/messages.ts).
+const WIN_REASON_LABELS: Dictionary = {
+	"hp_zero": "HP depleted",
+	"variable_isolation": "Variable isolation",
+	"force_eval_domination": "Force-eval domination",
+	"singular_board": "Board destroyed",
+	"undefined_integral_loss": "Undefined evaluation",
+}
+
+## Base captions for the three draw buttons — the armed deck gets a " ·1"
+## suffix so a split-draw selection is visible before the second click.
+const DECK_BUTTON_BASE_TEXT: Dictionary = {
+	"fcc": "Draw FCC",
+	"number": "Draw Number",
+	"action": "Draw Action",
+}
+
 ## Shared palette tokens reused by the dynamically-built construction rows.
 const MATH_GREEN: Color = Color(0, 1, 0.533)
 const TEXT_DIM: Color = Color(0.604, 0.604, 0.69)
 
 var _local_role: String = ""
+
+## Deck armed by a first draw-button click. A second click on the same deck
+## draws 2 from it; a click on a different deck splits 1+1. Cleared after
+## the draw_cards intent is sent and on every phase change.
+var _armed_deck: String = ""
+
+## Phase seen by the previous state_changed. Snapshots stream every 100ms,
+## so _armed_deck must reset on phase changes only — not per snapshot.
+var _last_phase: String = ""
+
+## Defense banner nodes, built once in _ready (code-built like the
+## construction rows — keeps game.tscn untouched).
+var _defense_banner: PanelContainer
+var _defense_label: Label
+var _defense_pass_button: Button
 
 ## boardIds whose Build button was pressed and is awaiting a server state
 ## update. Cleared on every state_changed (send_intent is fire-and-forget;
@@ -94,6 +129,7 @@ func _ready() -> void:
 	ConnectionManager.connect("connected", Callable(self, "_on_connected"))
 	ConnectionManager.connect("state_changed", Callable(self, "_on_state_changed"))
 	ConnectionManager.connect("error", Callable(self, "_on_connection_error"))
+	_build_defense_banner()
 	_render_from_model()
 
 
@@ -112,13 +148,25 @@ func _on_state_changed(_snapshot: Dictionary) -> void:
 	## build_function intent, so Build buttons re-enable here (see the
 	## rebuild in _render_construction_panel).
 	_pending_build_board_ids.clear()
+	var phase: String = String(GameModel.state.get("phase", ""))
+	if phase != _last_phase:
+		_armed_deck = ""
+		_last_phase = phase
 	_render_from_model()
 
 
 func _on_connection_error(code: String, message: String) -> void:
 	if code == "ERR_CONNECT_FAILED" or code == "ERR_CONNECT":
 		status_label.text = "Connection failed"
-	error_label.text = "%s\n%s" % [code, message]
+	## Server rejections (INVALID_TARGET etc.) surface here too — the dumb
+	## client's only feedback channel for refused intents is the error modal.
+	_show_error(code, message)
+
+
+## Transient banner for server-sent errors and local routing hints
+## (auto-dismissed by ErrorDismissTimer). Pass an empty code for hint text.
+func _show_error(code: String, message: String) -> void:
+	error_label.text = message if code == "" else "%s\n%s" % [code, message]
 	error_modal.visible = true
 	error_dismiss_timer.start()
 
@@ -132,18 +180,68 @@ func _render_from_model() -> void:
 	var phase: String = String(state.get("phase", "waiting"))
 	turn_phase_label.text = "Phase: %s" % PHASE_LABELS.get(phase, phase)
 	turn_phase_label.add_theme_color_override("font_color", PHASE_COLORS.get(phase, PHASE_DEFAULT_COLOR))
-	turn_owner_label.text = "Turn: %s" % String(state.get("currentTurnPlayerId", ""))
+	var turn_owner: String = String(state.get("currentTurnPlayerId", ""))
+	var is_mine: bool = turn_owner != "" and turn_owner == GameModel.local_session_id
+	turn_owner_label.text = "Turn: %s%s" % [turn_owner, " (you)" if is_mine else ""]
 
 	var local_player: Dictionary = GameModel.local_player()
 	var opponent_player: Dictionary = GameModel.opponent_player()
 	local_panel.update_from_player(local_player, "You", "Your HP: ")
 	opponent_panel.update_from_player(opponent_player, "Opponent", "Opponent HP: ")
 
+	_prune_selections(local_player)
 	_render_deck_counts(local_player)
 	_rebuild_hand(local_player)
 	_update_action_button_states(local_player)
 	_render_construction_panel(phase, local_player)
+	_render_defense_banner(phase, state)
 	_render_game_over(phase, state)
+
+
+## Drops selection ids whose card has left the hand (consumed by a
+## server-side resolution) so a stale id never rides along on an intent.
+func _prune_selections(local_player: Dictionary) -> void:
+	var hand: Array = local_player.get("hand", [])
+	if GameModel.selected_variable_value_card_id != "" and not _hand_has_card(hand, GameModel.selected_variable_value_card_id):
+		GameModel.selected_variable_value_card_id = ""
+	if GameModel.selected_factor_card_id != "" and not _hand_has_card(hand, GameModel.selected_factor_card_id):
+		GameModel.selected_factor_card_id = ""
+
+
+func _hand_has_card(hand: Array, card_id: String) -> bool:
+	for card in hand:
+		if String(card.get("id", "")) == card_id:
+			return true
+	return false
+
+
+## First active own board — the default target for board-scoped plays and
+## eval_function.
+func _first_active_board_id(local_player: Dictionary) -> String:
+	for board in local_player.get("boards", []):
+		if bool(board.get("isActive", false)):
+			return String(board.get("boardId", ""))
+	return ""
+
+
+## Number-deck cards (Prime/Irrational — anything carrying a numeric
+## payload) arm as attack factors instead of playing directly. Anchor VVCs
+## also match but are routed earlier by subtype.
+func _is_number_card(card: Dictionary) -> bool:
+	var subtype: String = String(card.get("subtype", ""))
+	if subtype == "Prime" or subtype == "Irrational":
+		return true
+	return String(card.get("numericValue", "")) != "" or float(card.get("value", 0)) != 0.0
+
+
+## True while the local player is the attack target of the defense phase.
+## pendingAttackTargetId is authoritative; when absent (older snapshots)
+## the defender is simply the player whose turn it is not.
+func _is_defense_target(state: Dictionary) -> bool:
+	var target_id: String = String(state.get("pendingAttackTargetId", ""))
+	if target_id != "":
+		return target_id == GameModel.local_session_id
+	return not GameModel.is_local_turn()
 
 
 ## Rebuilds the construction UI from scratch on every render (mirroring the
@@ -310,6 +408,75 @@ func _on_build_pressed(board_id: String, entry: LineEdit, build_button: Button) 
 	})
 
 
+## Builds the defense banner once — a PanelContainer with a status label
+## and a Pass button — parked right under the phase row. Only visible while
+## phase == "defense" (see _render_defense_banner).
+func _build_defense_banner() -> void:
+	_defense_banner = PanelContainer.new()
+	_defense_banner.name = "DefenseBanner"
+	_defense_banner.visible = false
+	var sb := StyleBoxFlat.new()
+	sb.bg_color = Color(0.137, 0.137, 0.227)
+	sb.set_corner_radius_all(8)
+	sb.set_border_width_all(1)
+	sb.border_width_left = 4
+	sb.border_color = PHASE_COLORS["defense"]
+	sb.set_content_margin_all(10)
+	_defense_banner.add_theme_stylebox_override("panel", sb)
+
+	var row := HBoxContainer.new()
+	row.add_theme_constant_override("separation", 12)
+	_defense_banner.add_child(row)
+
+	_defense_label = Label.new()
+	_defense_label.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+	_defense_label.vertical_alignment = VERTICAL_ALIGNMENT_CENTER
+	_defense_label.autowrap_mode = TextServer.AUTOWRAP_WORD_SMART
+	_defense_label.add_theme_font_size_override("font_size", 16)
+	_defense_label.add_theme_color_override("font_color", PHASE_COLORS["defense"])
+	row.add_child(_defense_label)
+
+	_defense_pass_button = Button.new()
+	_style_button_primary(_defense_pass_button)
+	_defense_pass_button.pressed.connect(_on_defense_pass_pressed)
+	row.add_child(_defense_pass_button)
+
+	main_vbox.add_child(_defense_banner)
+	main_vbox.move_child(_defense_banner, 2)
+
+
+func _render_defense_banner(phase: String, state: Dictionary) -> void:
+	_defense_banner.visible = phase == "defense"
+	if phase != "defense":
+		return
+
+	var is_target: bool = _is_defense_target(state)
+	_defense_label.text = _defense_banner_text()
+	_defense_pass_button.visible = is_target
+	var damage: float = float(state.get("pendingAttackDamage10", 0)) / 10.0
+	_defense_pass_button.text = "Pass (take %s damage)" % str(damage)
+	_defense_pass_button.disabled = bool(state.get("defenseResponseUsed", false))
+
+
+func _defense_banner_text() -> String:
+	var remaining: int = _deadline_seconds_left()
+	if _is_defense_target(GameModel.state):
+		return "INCOMING ATTACK — play a Shield/Trap or Pass (%ds)" % remaining
+	return "Opponent is defending… (%ds)" % remaining
+
+
+func _deadline_seconds_left() -> int:
+	var deadline_ms: float = float(GameModel.state.get("turnDeadline", 0))
+	var now_ms: float = Time.get_unix_time_from_system() * 1000.0
+	return int(max(0.0, (deadline_ms - now_ms) / 1000.0))
+
+
+## Passing on defense is just end_turn — the server treats it as declining
+## to play a reactive card and applies the pending attack damage.
+func _on_defense_pass_pressed() -> void:
+	ConnectionManager.send_intent("end_turn", {})
+
+
 ## Full-screen modal shown only in the gameOver phase. Compares the winning
 ## sessionId against this client's own to pick the outcome text.
 func _render_game_over(phase: String, state: Dictionary) -> void:
@@ -330,30 +497,34 @@ func _render_game_over(phase: String, state: Dictionary) -> void:
 		game_over_result.text = "You Lose"
 		game_over_detail.text = "Your opponent won this match."
 
+	var reason: String = String(WIN_REASON_LABELS.get(String(state.get("winReason", "")), ""))
+	if reason != "":
+		game_over_detail.text += "\n%s" % reason
 
-## Updates the construction countdown every frame while that phase is active.
-## turnDeadline is a server Unix-ms timestamp; remaining seconds are derived
-## against the local clock and floored at zero.
+
+## Updates the construction countdown and the defense banner every frame
+## while those phases are active. turnDeadline is a server Unix-ms timestamp;
+## remaining seconds are derived against the local clock and floored at zero.
 func _process(_delta: float) -> void:
-	if String(GameModel.state.get("phase", "")) != "construction":
-		return
-	var deadline_ms: float = float(GameModel.state.get("turnDeadline", 0))
-	var now_ms: float = Time.get_unix_time_from_system() * 1000.0
-	var remaining: int = int(max(0.0, (deadline_ms - now_ms) / 1000.0))
-	construction_countdown.text = "%ds" % remaining
+	var phase: String = String(GameModel.state.get("phase", ""))
+	if phase == "construction":
+		construction_countdown.text = "%ds" % _deadline_seconds_left()
+	elif phase == "defense" and _defense_label != null:
+		_defense_label.text = _defense_banner_text()
 
 
 func _render_deck_counts(local_player: Dictionary) -> void:
-	## `state.deckCounts` (server/src/state/schema.ts GameRoomState.deckCounts)
-	## is a public MapSchema<number> intended as the deck-size mirror, but no
-	## server command populates it yet (verified via CodeGraph: only
-	## schema.test.ts writes to it). Fall back to the local player's own
-	## private deck arrays, which ARE visible to the owning client via
-	## @filter(). See report.md "Wave 5 inconsistencies".
-	var deck_counts: Dictionary = GameModel.state.get("deckCounts", {})
-	var fcc: int = int(deck_counts.get("fcc", local_player.get("deckFCC", []).size()))
-	var number: int = int(deck_counts.get("number", local_player.get("deckNumber", []).size()))
-	var action: int = int(deck_counts.get("action", local_player.get("deckAction", []).size()))
+	## Preferred source is the per-player `deckCounts` object ({fcc, number,
+	## action}) on the local player. Two fallbacks keep the label honest on
+	## older snapshots: the state-level deckCounts map keyed
+	## "<sessionId>_<deck>", then the private deck arrays (owner-visible via
+	## @filter).
+	var counts: Dictionary = local_player.get("deckCounts", {})
+	var state_counts: Dictionary = GameModel.state.get("deckCounts", {})
+	var sid: String = GameModel.local_session_id
+	var fcc: int = int(counts.get("fcc", state_counts.get(sid + "_fcc", local_player.get("deckFCC", []).size())))
+	var number: int = int(counts.get("number", state_counts.get(sid + "_number", local_player.get("deckNumber", []).size())))
+	var action: int = int(counts.get("action", state_counts.get(sid + "_action", local_player.get("deckAction", []).size())))
 	deck_count_label.text = "FCC: %d | Num: %d | Act: %d" % [fcc, number, action]
 
 
@@ -367,6 +538,10 @@ func _rebuild_hand(local_player: Dictionary) -> void:
 	var hand: Array = local_player.get("hand", [])
 	var is_local_turn: bool = GameModel.is_local_turn()
 	var phase: String = String(GameModel.state.get("phase", ""))
+	var can_play: bool = is_local_turn and phase == "play"
+	## The defense target may only reach for reactive cards (shield/trap);
+	## everyone else's hand is inert outside their own play phase.
+	var defending: bool = phase == "defense" and _is_defense_target(GameModel.state)
 
 	for card in hand:
 		var card_id: String = String(card.get("id", ""))
@@ -374,10 +549,22 @@ func _rebuild_hand(local_player: Dictionary) -> void:
 		button.name = "HandCard_%s" % card_id
 		hand_vbox.add_child(button)
 		button.set_card(card)
-		button.disabled = not (is_local_turn and phase == "play")
+		if defending:
+			var card_type: String = String(card.get("cardType", ""))
+			button.disabled = not (card_type == "shield" or card_type == "trap")
+		else:
+			button.disabled = not can_play
+		button.set_selected(
+			card_id == GameModel.selected_variable_value_card_id
+			or card_id == GameModel.selected_factor_card_id
+			or card_id == String(local_player.get("trapCardId", ""))
+		)
 		button.card_clicked.connect(_on_card_clicked)
 
 
+## Routes a hand-card click to the right intent by cardType/subtype — the
+## client does no rule validation, it only picks the intent shape the server
+## contract expects (server/src/shared/messages.ts).
 func _on_card_clicked(card_id: String) -> void:
 	var local_player: Dictionary = GameModel.local_player()
 	var hand: Array = local_player.get("hand", [])
@@ -386,18 +573,96 @@ func _on_card_clicked(card_id: String) -> void:
 		if String(card.get("id", "")) == card_id:
 			clicked_card = card
 			break
+	if clicked_card.is_empty():
+		return
+
+	var state: Dictionary = GameModel.state
+	var card_type: String = String(clicked_card.get("cardType", ""))
+	var subtype: String = String(clicked_card.get("subtype", ""))
+
+	## Defense window: only the attack target may answer, and only with a
+	## reactive card (shield/trap per PlayDefenseCommand).
+	if String(state.get("phase", "")) == "defense" and _is_defense_target(state):
+		if card_type == "shield" or card_type == "trap":
+			ConnectionManager.send_intent("play_defense", {
+				"cardId": card_id,
+				"targetTriggerId": String(state.get("pendingTriggerId", "")),
+			})
+		return
 
 	## Variable Value Cards ("Anchor" subtype, see
 	## server/src/data/card-catalog.json vvc-1..5) are selected rather than
 	## played directly — they are consumed by eval_function/force_eval.
-	if String(clicked_card.get("subtype", "")) == "Anchor":
-		GameModel.selected_variable_value_card_id = card_id
-		_update_action_button_states(local_player)
+	if subtype == "Anchor":
+		if GameModel.selected_variable_value_card_id == card_id:
+			GameModel.selected_variable_value_card_id = ""
+		else:
+			GameModel.selected_variable_value_card_id = card_id
+		_render_from_model()
 		return
 
+	if card_type == "forceEval":
+		if GameModel.selected_variable_value_card_id == "":
+			_show_error("", "Select an Anchor (value) card first")
+			return
+		ConnectionManager.send_intent("force_eval", {
+			"variableValueCardId": GameModel.selected_variable_value_card_id,
+		})
+		GameModel.selected_variable_value_card_id = ""
+		return
+
+	if card_type == "offensive" or card_type == "martialTheorem":
+		var opponent_id: String = String(GameModel.opponent_player().get("sessionId", ""))
+		if opponent_id == "":
+			_show_error("", "No opponent to target")
+			return
+		var payload: Dictionary = {
+			"cardId": card_id,
+			"target": {"kind": "opp", "id": opponent_id},
+		}
+		var factor_id: String = GameModel.selected_factor_card_id
+		if factor_id != "" and _hand_has_card(hand, factor_id):
+			payload["numberFactorCardIds"] = [factor_id]
+		ConnectionManager.send_intent("play_card", payload)
+		GameModel.selected_factor_card_id = ""
+		return
+
+	if card_type == "trap":
+		if String(local_player.get("trapCardId", "")) != "":
+			_show_error("", "Trap slot already occupied")
+			return
+		ConnectionManager.send_intent("set_trap", {
+			"cardId": card_id,
+			"trigger": "on_force_eval",
+		})
+		return
+
+	if card_type == "shield":
+		_show_error("", "Shield is reactive — wait for defense phase")
+		return
+
+	if _is_number_card(clicked_card):
+		if GameModel.selected_factor_card_id == card_id:
+			GameModel.selected_factor_card_id = ""
+		else:
+			GameModel.selected_factor_card_id = card_id
+		_render_from_model()
+		return
+
+	## The 'Eval' action card is consumed by eval_function — clicking it is
+	## a shortcut for the Evaluate button once an Anchor is selected.
+	if subtype == "Eval":
+		if not _try_send_eval():
+			_show_error("", "Needs: play phase, an active board, and a selected Anchor")
+		return
+
+	## Board-scoped plays (addTerm/derivative/integral/limit/composition and
+	## anything unrecognized) default to the first active own board.
+	var board_id: String = _first_active_board_id(local_player)
+	var target: Dictionary = {"kind": "self_board", "id": board_id} if board_id != "" else {"kind": "none"}
 	ConnectionManager.send_intent("play_card", {
 		"cardId": card_id,
-		"target": {"kind": "none"},
+		"target": target,
 	})
 
 
@@ -405,13 +670,15 @@ func _update_action_button_states(local_player: Dictionary) -> void:
 	var phase: String = String(GameModel.state.get("phase", ""))
 	var is_local_turn: bool = GameModel.is_local_turn()
 
-	end_turn_button.disabled = not is_local_turn or phase == "resolution"
+	## During defense the turn button stays off — the defender answers via
+	## the banner's Pass button (which also sends end_turn).
+	end_turn_button.disabled = not is_local_turn or phase == "resolution" or phase == "defense"
 
-	var boards: Array = local_player.get("boards", [])
-	var has_active_board: bool = false
-	for board in boards:
-		if bool(board.get("isActive", false)):
-			has_active_board = true
+	var has_active_board: bool = _first_active_board_id(local_player) != ""
+	var has_eval_card: bool = false
+	for card in local_player.get("hand", []):
+		if String(card.get("subtype", "")) == "Eval":
+			has_eval_card = true
 			break
 
 	## No `has_eval_legal` field exists anywhere on the server (schema,
@@ -419,18 +686,40 @@ func _update_action_button_states(local_player: Dictionary) -> void:
 	## assumes the server sets this boolean; it does not. Compensating
 	## client-side: Evaluate is visible whenever local player has an active
 	## board to evaluate, matching EvalCommand's actual phase/board checks.
+	## eval_function additionally consumes an 'Eval'-subtype action card, so
+	## the button spells out whichever prerequisite is missing.
 	## See report.md "Wave 5 inconsistencies".
 	evaluate_button.visible = has_active_board
 	evaluate_button.disabled = (
 		not is_local_turn
 		or phase != "play"
 		or GameModel.selected_variable_value_card_id == ""
+		or not has_eval_card
 	)
+	if not has_eval_card:
+		evaluate_button.text = "Needs Evaluate card"
+	elif GameModel.selected_variable_value_card_id == "":
+		evaluate_button.text = "Select Anchor + Evaluate"
+	else:
+		evaluate_button.text = "Evaluate"
 
 	var can_draw: bool = is_local_turn and phase == "draw"
 	draw_fcc_button.disabled = not can_draw
 	draw_number_button.disabled = not can_draw
 	draw_action_button.disabled = not can_draw
+	_update_draw_button_labels()
+
+
+## Restores the draw-button captions, tagging the armed deck with " ·1".
+func _update_draw_button_labels() -> void:
+	var buttons: Dictionary = {
+		"fcc": draw_fcc_button,
+		"number": draw_number_button,
+		"action": draw_action_button,
+	}
+	for deck in buttons:
+		var button: Button = buttons[deck]
+		button.text = String(DECK_BUTTON_BASE_TEXT[deck]) + (" ·1" if _armed_deck == deck else "")
 
 
 func _on_draw_fcc_pressed() -> void:
@@ -448,10 +737,22 @@ func _on_draw_action_pressed() -> void:
 func _send_draw(deck: String) -> void:
 	## server/src/rooms/handlers.ts drawChoiceTotal() requires the sum of
 	## deckChoices[].count to equal exactly 2 — draw_cards is not a
-	## single-card-per-click intent. See report.md "Wave 5 inconsistencies"
-	## (the wave-5 plan's intent table assumed a 1-card {deckType} payload).
+	## single-card-per-click intent. The first click only "arms" a deck; the
+	## second sends — same deck draws 2, a different deck splits 1+1.
+	## See report.md "Wave 5 inconsistencies".
+	if _armed_deck == "":
+		_armed_deck = deck
+		_update_draw_button_labels()
+		return
+	var choices: Array
+	if _armed_deck == deck:
+		choices = [{"deck": deck, "count": 2}]
+	else:
+		choices = [{"deck": _armed_deck, "count": 1}, {"deck": deck, "count": 1}]
+	_armed_deck = ""
+	_update_draw_button_labels()
 	ConnectionManager.send_intent("draw_cards", {
-		"deckChoices": [{"deck": deck, "count": 2}],
+		"deckChoices": choices,
 	})
 
 
@@ -459,19 +760,21 @@ func _on_end_turn_pressed() -> void:
 	ConnectionManager.send_intent("end_turn", {})
 
 
-func _on_evaluate_pressed() -> void:
-	var local_player: Dictionary = GameModel.local_player()
-	var boards: Array = local_player.get("boards", [])
-	var board_id: String = ""
-	for board in boards:
-		if bool(board.get("isActive", false)):
-			board_id = String(board.get("boardId", ""))
-			break
-	if board_id == "" or GameModel.selected_variable_value_card_id == "":
-		return
-
+## Sends eval_function against the first active board with the selected
+## Anchor card. Shared by the Evaluate button and clicking the 'Eval'
+## action card itself. Returns false when prerequisites are unmet.
+func _try_send_eval() -> bool:
+	var board_id: String = _first_active_board_id(GameModel.local_player())
+	var vvc_id: String = GameModel.selected_variable_value_card_id
+	if board_id == "" or vvc_id == "":
+		return false
 	ConnectionManager.send_intent("eval_function", {
 		"boardId": board_id,
-		"variableValueCardId": GameModel.selected_variable_value_card_id,
+		"variableValueCardId": vvc_id,
 	})
 	GameModel.selected_variable_value_card_id = ""
+	return true
+
+
+func _on_evaluate_pressed() -> void:
+	_try_send_eval()
