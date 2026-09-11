@@ -35,6 +35,7 @@ coverage/
 .agents/
 .claude/
 .sisyphus/
+.omo/
 .codegraph/
 AGENTS.md
 justfile
