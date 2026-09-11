@@ -35,9 +35,10 @@ const ACT_ORANGE: Color = Color(1, 0.533, 0.267)
 const NEUTRAL_ACCENT: Color = Color(0.5, 0.5, 0.6)
 
 ## Display names for the frozen 30-card catalog
-## (server/src/data/card-catalog.json). Hand snapshots carry the catalog id
-## but no `name` field, so the client maps id -> name for readability. This
-## is presentation metadata only — the server remains authoritative.
+## (server/src/data/card-catalog.json). Hand snapshots now carry a `name`
+## field joined from the catalog server-side; this map is the fallback for
+## unknown/future ids only. Presentation metadata — the server remains
+## authoritative.
 const CARD_NAMES: Dictionary = {
 	"fcc-add-term-001": "Term Surge",
 	"fcc-calc-derivative-001": "Flux Delta",
@@ -92,11 +93,15 @@ func set_card(card: Dictionary) -> void:
 	card_id = String(card.get("id", ""))
 	card_type = String(card.get("cardType", ""))
 	card_subtype = String(card.get("subtype", ""))
-	## Hand cards on the wire carry {id, cardType, subtype, numericValue,
-	## value} — `name` exists only on deck entries, so fall back to the
-	## subtype display name, then the id. Number-ish cards also show their
+	## Hand cards on the wire carry {id, name, cardType, subtype,
+	## numericValue, value} — `name` is joined from the catalog at the
+	## snapshot layer (wave-7 T6). Fallback chain: snapshot name -> local
+	## CARD_NAMES -> subtype -> id. Number-ish cards also show their
 	## payload so e.g. the five Anchor VVCs are distinguishable.
-	var title: String = String(CARD_NAMES.get(card_id, card.get("name", "")))
+	var raw_name: Variant = card.get("name", "")
+	var title: String = String(raw_name) if raw_name != null else ""
+	if title == "":
+		title = String(CARD_NAMES.get(card_id, ""))
 	if title == "":
 		title = card_subtype if card_subtype != "" else card_id
 	var detail: String = String(card.get("numericValue", ""))

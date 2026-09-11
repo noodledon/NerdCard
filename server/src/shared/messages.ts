@@ -36,7 +36,9 @@ export const DrawCardsSchema = z.object({
 export const SetTrapSchema = z.object({
   type: z.literal('set_trap'),
   cardId: z.string(),
-  trigger: z.enum(['on_attack', 'on_eval', 'on_force_eval']),
+  // Optional: the server derives trap behavior from the card's catalog entry
+  // (effectParams.trigger), so a client-supplied value is never authoritative.
+  trigger: z.enum(['on_attack', 'on_eval', 'on_force_eval']).optional(),
 });
 
 export const PlayDefenseSchema = z.object({

@@ -61,6 +61,13 @@ describe('messages', () => {
     for (const message of messages) expect(parseClientMessage(message).ok).toBe(true);
   });
 
+  it('set_trap accepts a missing trigger (server derives it from the card)', () => {
+    expect(parseClientMessage({ type: 'set_trap', cardId: 'card-1' }).ok).toBe(true);
+    // A client-supplied value still validates for backward compatibility.
+    expect(parseClientMessage({ type: 'set_trap', cardId: 'card-1', trigger: 'on_eval' }).ok).toBe(true);
+    expect(parseClientMessage({ type: 'set_trap', cardId: 'card-1', trigger: 'bogus' }).ok).toBe(false);
+  });
+
   it('parseClientMessage returns structured error for unknown type', () => {
     const payload = { type: 'unknown_intent' };
 
