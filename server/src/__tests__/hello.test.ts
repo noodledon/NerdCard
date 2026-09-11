@@ -8,7 +8,10 @@ const { Server } = colyseus as unknown as { Server: new (opts?: Record<string, u
 describe('appConfig', () => {
   it('is a function that returns a Server instance', () => {
     const mockServer = { on: () => undefined, once: () => undefined } as unknown as http.Server;
-    const result = appConfig(mockServer);
+    // startBridge: false keeps the test from binding :2568, so the suite
+    // coexists with a running dev server.
+    const result = appConfig(mockServer, { startBridge: false });
     expect(result).toHaveProperty('listen');
+    expect(result).toHaveProperty('jsonBridge');
   });
 });
