@@ -21,11 +21,14 @@ describe('Wave 4 edge cases', () => {
   });
 
   it('(g) exact double does not dominate', () => {
-    const result = forceEval({ players: [
-      { id: 'A', hp10: 100, lastForceValue: 60, boards: [{}] },
-      { id: 'B', hp10: 100, lastForceValue: 30, boards: [{}] },
-    ] }, { nominatorId: 'A' });
+    const a = { id: 'A', hp10: 100, lastForceValue: 60, boards: [{}] };
+    const b = { id: 'B', hp10: 100, lastForceValue: 30, boards: [{}] };
+    const result = forceEval({ players: [a, b] }, { nominatorId: 'A' });
     expect(result.winner).toBeUndefined();
+    expect(result.nominatorBoardDestroyed).toBe(true);
+    expect(a.hp10).toBe(50);
+    expect(b.hp10).toBe(100);
+    expect(result.redistributions).toEqual([]);
   });
 
   it('(g) a value beyond epsilon dominates', () => {

@@ -6,14 +6,14 @@ import type { CommandState } from '../../commands/base.js';
 
 function player(
   id: string,
-  hand: Array<{ id: string; cardType?: string; subtype?: string }> = [],
+  hand: Array<{ id: string; cardType?: string; subtype?: string; value?: number }> = [],
 ) {
   return {
     sessionId: id,
     hp10: 100,
     hand,
     boards: [{ boardId: `${id}-board`, expression: 'x', isActive: true }],
-    discardGraveyard: [] as Array<{ id: string; cardType?: string; subtype?: string }>,
+    discardGraveyard: [] as Array<{ id: string; cardType?: string; subtype?: string; value?: number }>,
   };
 }
 
@@ -34,6 +34,7 @@ describe('Wave 4 command edges', () => {
     const p1 = player('p1', [
       { id: 'force-1', cardType: 'forceEval' },
       { id: 'force-2', cardType: 'forceEval' },
+      { id: 'vvc-1', subtype: 'Anchor', value: 2 },
     ]);
     const gameState = state([p1, player('p2')]);
     const events: Array<{ event: string; actorId: string; details: Record<string, unknown> }> = [];
@@ -43,8 +44,8 @@ describe('Wave 4 command edges', () => {
       emitGameEvent(event, actorId, details = {}) { events.push({ event, actorId, details }); },
     };
 
-    expect(command.execute({ playerId: 'p1', cardId: 'force-1' })).toEqual({ ok: true });
-    expect(command.execute({ playerId: 'p1', cardId: 'force-2' })).toMatchObject({ ok: true, fizzled: true });
+    expect(command.execute({ playerId: 'p1', cardId: 'force-1', vvcCardId: 'vvc-1' })).toEqual({ ok: true });
+    expect(command.execute({ playerId: 'p1', cardId: 'force-2', vvcCardId: 'vvc-1' })).toMatchObject({ ok: true, fizzled: true });
 
     expect(events).toEqual([
       { event: 'force_eval', actorId: 'p1', details: { cardId: 'force-1' } },
@@ -54,7 +55,7 @@ describe('Wave 4 command edges', () => {
         details: { source: 'force_eval', cardId: 'force-2', reason: 'already_resolved' },
       },
     ]);
-    expect(p1.discardGraveyard.map((card) => card.id)).toEqual(['force-1']);
+    expect(p1.discardGraveyard.map((card) => card.id)).toEqual(['force-1', 'vvc-1']);
     expect(p1.hand.map((card) => card.id)).toEqual(['force-2']);
   });
 
@@ -87,7 +88,7 @@ describe('Wave 4 command edges', () => {
     const command = new ForceEvalCommand();
     command.state = state([p1, player('p2')]);
 
-    expect(command.execute({ playerId: 'p1', cardId: 'not-force' })).toEqual({
+    expect(command.execute({ playerId: 'p1', cardId: 'not-force', vvcCardId: 'vvc-1' })).toEqual({
       ok: false,
       reason: 'force evaluation card required',
     });
@@ -99,11 +100,13 @@ describe('Wave 4 command edges', () => {
     const gameState = state([p1, player('p2')]);
     gameState.phase = 'defense';
     gameState.pendingTriggerId = 'trigger-1';
+    gameState.pendingAttackDamage10 = 50;
     const command = new PlayDefenseCommand();
     command.state = gameState;
 
     expect(command.execute({ playerId: 'p1', cardId: 'shield-1', targetTriggerId: 'trigger-1' })).toEqual({ ok: true });
     expect(gameState.defenseResponseUsed).toBe(true);
+    expect(gameState.pendingAttackDamage10).toBe(0);
     expect(command.execute({ playerId: 'p1', cardId: 'shield-1', targetTriggerId: 'trigger-1' })).toEqual({
       ok: false,
       reason: 'defense response already used',

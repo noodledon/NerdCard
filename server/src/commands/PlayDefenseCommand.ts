@@ -25,6 +25,8 @@ export class PlayDefenseCommand extends GameCommand<PlayDefensePayload> {
       return failure('card is not reactive defense');
     }
     moveCardToGraveyard(player, payload.cardId);
+    if (player.trapCardId === payload.cardId) player.trapCardId = '';
+    state.pendingAttackDamage10 = 0;
     state.defenseResponseUsed = true;
     this.context()?.emitGameEvent?.('play_defense', payload.playerId, {
       cardId: payload.cardId,

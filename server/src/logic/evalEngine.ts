@@ -121,6 +121,16 @@ export function forceEval(
     mainBoard.destroyed = true;
     mainBoard.isActive = false;
   }
+  const halfA = Math.floor(nominator.hp10 / 2);
+  nominator.hp10 -= halfA;
+  const redistributions: ForceEvalResult['redistributions'] = [];
+  const beneficiary = opponents.find(
+    (opponent) => opponent.lastForceValue > nominator.lastForceValue,
+  );
+  if (beneficiary) {
+    beneficiary.hp10 += halfA;
+    redistributions.push({ from: nominator.id, to: beneficiary.id, hp10Transferred: halfA });
+  }
   state.consecutive_no_eval_turns = 0;
-  return { nominatorBoardDestroyed: true, redistributions: [] };
+  return { nominatorBoardDestroyed: true, redistributions };
 }

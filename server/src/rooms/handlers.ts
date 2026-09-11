@@ -39,6 +39,7 @@ export interface HandlerRoom {
     phase: string;
     currentTurnPlayerId: string;
     pendingTriggerId?: string;
+    pendingAttackTargetId?: string;
     defenseResponseUsed?: boolean;
     players: {
       get(id: string): HandlerPlayer | undefined;
@@ -237,7 +238,11 @@ export function registerHandlers(
 
   onMessage('play_defense', async (client, raw) => {
     const payload = parsePayload(client, PlayDefenseSchema, raw);
-    if (!payload || !requirePhase(room, client, ['defense']) || !requireTurnOwner(room, client)) return;
+    if (!payload || !requirePhase(room, client, ['defense'])) return;
+    if (client.sessionId !== room.state.pendingAttackTargetId) {
+      sendError(client, ErrorCode.NOT_YOUR_TURN, 'not the defending player');
+      return;
+    }
     if (!requireCard(room, client, String(payload.cardId))) return;
     if (!requirePendingTrigger(room, client, String(payload.targetTriggerId))) return;
     await room.dispatchIntent(client, 'play_defense', payload);
@@ -259,7 +264,11 @@ export function registerHandlers(
 
   onMessage('end_turn', async (client, raw) => {
     const payload = parsePayload(client, EndTurnSchema, raw);
-    if (!payload || !requirePhase(room, client, ['play']) || !requireTurnOwner(room, client)) return;
+    if (!payload) return;
+    // The pending-attack defender may pass by ending the defense window early;
+    // requestEndTurn re-validates authoritatively either way.
+    const defenderPassing = room.state.phase === 'defense' && client.sessionId === room.state.pendingAttackTargetId;
+    if (!defenderPassing && (!requirePhase(room, client, ['play']) || !requireTurnOwner(room, client))) return;
     await room.requestEndTurn(client);
   });
 

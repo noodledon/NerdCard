@@ -113,7 +113,6 @@ export function validatePolynomial(
   node: MathNode,
   opts: { maxDegree: number },
 ): ValidationResult {
-  // Single variable only.
   const vars = new Set<string>();
   node.traverse((n: MathNode) => {
     if (n.type === 'SymbolNode') {
@@ -121,17 +120,17 @@ export function validatePolynomial(
       if (!['pi', 'e', 'phi', 'i', 'INF', 'NaN'].includes(name)) vars.add(name);
     }
   });
-  if (vars.size > 1) {
-    return { ok: false, reason: `polynomial must use a single variable, found: ${[...vars].join(', ')}` };
-  }
   if (hasTranscendentalOrConstant(node)) {
     return { ok: false, reason: 'polynomial coefficients must be numeric (no transcendental constants/functions)' };
   }
-  if (vars.size === 1) {
-    const v = [...vars][0];
+  // Multiple variables are allowed — the complexity scorer requires >=2
+  // distinct vars for HP eligibility, and gameplay-flow.md's own example
+  // builds `x^2 + y` on a Polynomial board. The degree cap applies per
+  // variable (x^5 * y is legal; x^6 is not).
+  for (const v of vars) {
     const deg = degreeOf(node, v);
     if (deg > opts.maxDegree) {
-      return { ok: false, reason: `degree ${deg} exceeds max ${opts.maxDegree}` };
+      return { ok: false, reason: `degree ${deg} exceeds max ${opts.maxDegree} in ${v}` };
     }
   }
   return OK;

@@ -3,7 +3,6 @@ import {
   getPlayer,
   isAggressiveActionUsed,
   markAggressiveActionUsed,
-  moveCardToGraveyard,
   phaseAllowed,
   requiredCard,
   success,
@@ -32,7 +31,6 @@ export class TrapCommand extends GameCommand<TrapPayload> {
 
     player.trapCardId = trapCardId;
     markAggressiveActionUsed(player);
-    moveCardToGraveyard(player, trapCardId);
     return success();
   }
 }

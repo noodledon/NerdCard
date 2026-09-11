@@ -1,6 +1,6 @@
 import {
-  failure, findCard, findBoard, getPlayer, isBoardAlive, phaseAllowed,
-  success, type CommandResult, GameCommand,
+  failure, findCard, findCardBySubtype, findBoard, getPlayer, isBoardAlive,
+  moveCardToGraveyard, phaseAllowed, success, type CommandResult, GameCommand,
 } from './base.js';
 
 export interface EvalPayload { playerId: string; boardIndex: number; vvcCardId: string; }
@@ -16,6 +16,8 @@ export class EvalCommand extends GameCommand<EvalPayload> {
     // subtype "Anchor" — this previously compared against the non-existent
     // string 'variable-value', making eval_function unreachable. See report.md.
     if (!vvc || vvc.subtype !== 'Anchor') return failure('valid variable-value card required');
+    const evalCard = findCardBySubtype(player, 'Eval');
+    if (!evalCard) return failure('requires an Evaluate card');
     const board = findBoard(player, undefined, boardIndex);
     if (!board || !isBoardAlive(board)) {
       this.context()?.emitGameEvent?.('fizzle', playerId, {
@@ -31,6 +33,8 @@ export class EvalCommand extends GameCommand<EvalPayload> {
     if (result.undefined) {
       board.destroyed = true;
       board.isActive = false;
+      moveCardToGraveyard(player, vvcCardId);
+      moveCardToGraveyard(player, evalCard.id);
       this.context()?.emitGameEvent?.('eval_function', playerId, {
         boardIndex,
         vvcCardId,
@@ -41,6 +45,9 @@ export class EvalCommand extends GameCommand<EvalPayload> {
     player.hp10 += Math.floor(result.hpGain10);
     if (result.hpGain10 > 0) player.everGainedHP = true;
     player.evaluatedThisTurn = true;
+    moveCardToGraveyard(player, vvcCardId);
+    moveCardToGraveyard(player, evalCard.id);
+    board.expression = '';
     this.context()?.emitGameEvent?.('eval_function', playerId, {
       boardIndex,
       vvcCardId,

@@ -60,7 +60,10 @@ export class AttackHpCommand extends GameCommand<AttackHpPayload> {
       bindFactor(player, payload.numberCardId, payload.cardId);
     }
     const damage10 = Math.max(0, Math.floor((payload.damage10 ?? 5) * factor));
-    target.hp10 = Math.max(0, target.hp10 - damage10);
+    state.pendingAttackDamage10 = damage10;
+    state.pendingAttackSourceId = payload.playerId;
+    state.pendingAttackTargetId = target.sessionId ?? target.id ?? '';
+    state.pendingTriggerId = `attack_t${state.turnIndex ?? 0}_${payload.cardId}`;
     markAggressiveActionUsed(player);
     moveCardToGraveyard(player, payload.cardId);
     this.context()?.emitGameEvent?.('play_card', payload.playerId, {
@@ -68,7 +71,8 @@ export class AttackHpCommand extends GameCommand<AttackHpPayload> {
       targetPlayerId: payload.targetPlayerId,
       targetBoardId: payload.targetBoardId,
       damage10,
+      pending: true,
     });
-    return success({ damage10 });
+    return success({ damage10, pending: true });
   }
 }

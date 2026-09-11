@@ -63,15 +63,17 @@ describe('build_function → construction → draw', () => {
     expect(game.state.phase).toBe(Phase.draw);
   });
 
-  it('rejects build_function outside construction', async () => {
+  it('writes the board but skips the FSM submission outside construction', async () => {
     const game = harness();
     const b1 = boardIdFor(game, 'p1');
     const b2 = boardIdFor(game, 'p2');
     await Promise.resolve(game.dispatchIntent('p1', 'build_function', { boardId: b1, expression: 'x^2' }));
     await Promise.resolve(game.dispatchIntent('p2', 'build_function', { boardId: b2, expression: 'x^3+x' }));
-    // now in draw — a further build should fail
+    // now in draw — the command stands alone and does not advance the phase
     const result = await Promise.resolve(game.dispatchIntent('p1', 'build_function', { boardId: b1, expression: 'x+1' }));
-    expect(result.ok).toBe(false);
+    expect(result.ok).toBe(true);
+    expect(game.getPlayer('p1')?.boards[0]?.expression).toBe('x+1');
+    expect(game.state.phase).toBe(Phase.draw);
   });
 
   it('rejects an invalid expression without advancing', async () => {

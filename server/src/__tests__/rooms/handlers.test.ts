@@ -22,6 +22,7 @@ function harness() {
       phase: 'play',
       currentTurnPlayerId: 'p1',
       pendingTriggerId: 'trigger-1',
+      pendingAttackTargetId: 'p1',
       defenseResponseUsed: false,
       players,
     },
@@ -165,6 +166,17 @@ describe('room message handlers', () => {
       type: 'play_defense', cardId: 'defense-1', targetTriggerId: 'unknown-trigger',
     });
     expect(h.errors[0]?.code).toBe(ErrorCode.INVALID_TARGET);
+    expect(h.dispatches).toEqual([]);
+  });
+
+  it('rejects play_defense from a client that is not the pending-attack defender', async () => {
+    const h = harness();
+    h.room.state.phase = 'defense';
+    h.room.state.pendingAttackTargetId = 'p2';
+    await invoke(h, 'play_defense', {
+      type: 'play_defense', cardId: 'defense-1', targetTriggerId: 'trigger-1',
+    });
+    expect(h.errors[0]?.code).toBe(ErrorCode.NOT_YOUR_TURN);
     expect(h.dispatches).toEqual([]);
   });
 });

@@ -4,7 +4,8 @@ import { Phase } from '../logic/fsm.js';
 import type { BaseDomain } from '../shared/types.js';
 import { PhaseController } from './phaseController.js';
 import { CommandDispatcher, type CommandIntent } from '../commands/CommandDispatcher.js';
-import { evaluate } from '../logic/evalEngine.js';
+import { evaluate, forceEval as engineForceEval, type ForceEvalPlayer } from '../logic/evalEngine.js';
+import { checkWin } from '../logic/winEngine.js';
 import type { CommandResult, CommandState } from '../commands/base.js';
 
 export interface GameEvent {
@@ -14,6 +15,20 @@ export interface GameEvent {
 }
 
 export type GameEventListener = (event: GameEvent) => void;
+
+const WIN_REASON_BY_ENGINE: Record<string, string> = {
+  hp0: 'hp_zero',
+  isolation: 'variable_isolation',
+  'force-dom': 'force_eval_domination',
+  singular: 'singular_board',
+  dim0: 'singular_board',
+};
+
+/** play_card cardTypes that toCommandIntent already routes to a command. */
+const ROUTED_PLAY_CARD_TYPES = new Set([
+  'addTerm', 'derivative', 'offensive', 'martialTheorem', 'trap',
+  'artifactTheorem', 'forceEval', 'addBoard', 'composition', 'integral', 'limit',
+]);
 
 /**
  * Core game logic for NerdiClash, transport-agnostic.
@@ -97,9 +112,17 @@ export class NerdiClashGame {
   tick(now: number): void {
     const previousPhase = this.phaseController.phase;
     this.phaseController.tick(now);
-    if (previousPhase === Phase.resolution && this.phaseController.phase === Phase.draw) {
+    const phase = this.phaseController.phase;
+    if ((previousPhase === Phase.play || previousPhase === Phase.defense) && phase === Phase.resolution) {
+      // Auto-pass: a play/defense deadline elapsed, so the turn resolves here.
+      // A pending attack lands without a defense window (MVP simplification).
+      this.applyPendingAttack();
+      this.phaseController.requestTransition(Phase.draw);
+      this.rotateTurnOwner();
+    } else if (previousPhase === Phase.resolution && phase === Phase.draw) {
       this.rotateTurnOwner();
     }
+    this.runCheckWin();
   }
 
   startGame(): void {
@@ -109,11 +132,18 @@ export class NerdiClashGame {
   // ─── Intent dispatch ───────────────────────────────────────────────────────
 
   dispatchIntent(sessionId: string, intent: string, payload: Record<string, unknown>): CommandResult | Promise<CommandResult> {
+    if (this.state.winner) {
+      return { ok: false, reason: 'game is over' };
+    }
+
     if (intent === 'ready_inst') {
       return { ok: true };
     }
 
     if (intent === 'draw_cards') {
+      if (this.state.phase !== Phase.draw || sessionId !== this.state.currentTurnPlayerId) {
+        return { ok: false, reason: 'not your draw phase' };
+      }
       const choices = this.readDrawChoices(payload);
       if (!choices) {
         return { ok: false, reason: 'invalid draw choices' };
@@ -138,7 +168,8 @@ export class NerdiClashGame {
 
     const commandIntent = this.toCommandIntent(sessionId, intent, payload);
     if (!commandIntent) {
-      return { ok: false, reason: `unsupported intent ${intent}` };
+      const unrouted = intent === 'play_card' ? this.unroutedPlayCardReason(sessionId, payload) : undefined;
+      return { ok: false, reason: unrouted ?? `unsupported intent ${intent}` };
     }
     const result = this.dispatchCommand(commandIntent);
     if (result instanceof Promise) {
@@ -159,7 +190,7 @@ export class NerdiClashGame {
     payload: Record<string, unknown>,
     sessionId: string,
   ): CommandResult {
-    if (result.ok && intent === 'build_function') {
+    if (result.ok && intent === 'build_function' && this.state.phase === Phase.construction) {
       const board = this.findBoardForPlayer(sessionId, String(payload.boardId));
       const domain = (board?.domain ?? 'poly') as BaseDomain;
       const submission = this.phaseController.submitBuildFunction(sessionId, {
@@ -171,19 +202,43 @@ export class NerdiClashGame {
       }
     }
     if (result.ok && intent === 'play_defense') {
-      this.phaseController.requestTransition(Phase.resolution);
+      // PlayDefenseCommand already zeroed the pending damage for a successful
+      // defense; applyPendingAttack records the (negated) hit and clears state.
+      this.applyPendingAttack();
+      this.resolveTurn();
     }
     if (result.ok && !result.fizzled && (intent === 'eval_function' || intent === 'force_eval')) {
       this.phaseController.onEvalTurn();
     }
+    if (result.ok) this.runCheckWin();
     return result;
   }
 
   requestEndTurn(sessionId: string): CommandResult {
+    if (this.state.winner) {
+      return { ok: false, reason: 'game is over' };
+    }
+    const defenderPassing = this.state.phase === Phase.defense
+      && sessionId === this.state.pendingAttackTargetId;
+    if (this.state.phase !== Phase.play && !defenderPassing) {
+      return { ok: false, reason: 'end turn only in play phase' };
+    }
+    if (this.state.phase === Phase.play && sessionId !== this.state.currentTurnPlayerId) {
+      return { ok: false, reason: 'not the active player' };
+    }
     const player = this.state.players.get(sessionId);
     if (!player) {
       return { ok: false, reason: 'player state missing' };
     }
+
+    if (defenderPassing) {
+      // The defender declines to respond — the pending attack lands.
+      this.applyPendingAttack();
+      this.resolveTurn();
+      this.emitGameEvent('end_turn', sessionId);
+      return { ok: true };
+    }
+
     // Advance stalling counters before resetting the flag so we read the true
     // value for this turn. onEvalTurn resets consecutive_no_eval_turns; 
     // onNoEvalTurn increments both counters and may return force-eval events.
@@ -197,12 +252,20 @@ export class NerdiClashGame {
     player.evaluatedThisTurn = false;
     player.actionsUsedThisTurn = 0;
     this.state.forceEvalRequested = false;
-    this.state.pendingTriggerId = '';
-    this.state.defenseResponseUsed = false;
     this.tickIsolationTimers();
-    this.phaseController.requestTransition(Phase.resolution);
-    this.phaseController.requestTransition(Phase.draw);
-    this.rotateTurnOwner();
+
+    if (this.state.pendingAttackTargetId) {
+      // An attack was recorded this turn — open the defense window instead of
+      // resolving. pendingTriggerId/defenseResponseUsed stay live until the
+      // attack actually resolves.
+      if (!this.state.pendingTriggerId) {
+        this.state.pendingTriggerId = `attack-${this.state.turnIndex}`;
+      }
+      this.phaseController.requestTransition(Phase.defense);
+    } else {
+      this.applyPendingAttack();
+      this.resolveTurn();
+    }
     this.emitGameEvent('end_turn', sessionId);
     return { ok: true };
   }
@@ -221,6 +284,13 @@ export class NerdiClashGame {
       turnIndex: this.state.turnIndex,
       roundNumber: this.state.roundNumber,
       winner: this.state.winner,
+      winReason: this.state.winReason,
+      pendingAttackDamage10: this.state.pendingAttackDamage10,
+      pendingAttackSourceId: this.state.pendingAttackSourceId,
+      pendingAttackTargetId: this.state.pendingAttackTargetId,
+      pendingTriggerId: this.state.pendingTriggerId,
+      defenseResponseUsed: this.state.defenseResponseUsed,
+      forceEvalRequested: this.state.forceEvalRequested,
       consecutive_no_eval_turns: this.state.consecutive_no_eval_turns,
       global_no_eval_turns: this.state.global_no_eval_turns,
       players: Object.fromEntries(
@@ -262,6 +332,11 @@ export class NerdiClashGame {
             boundFactorSpellId: player.boundFactorSpellId,
             evaluatedThisTurn: player.evaluatedThisTurn,
             actionsUsedThisTurn: player.actionsUsedThisTurn,
+            deckCounts: {
+              fcc: player.deckFCC.length,
+              number: player.deckNumber.length,
+              action: player.deckAction.length,
+            },
           },
         ]),
       ),
@@ -332,7 +407,7 @@ export class NerdiClashGame {
         } else if (current > 0) {
           this.state.variable_isolation_timers.set(id, current - 1);
         }
-      } else {
+      } else if (this.state.variable_isolation_timers.has(id)) {
         this.state.variable_isolation_timers.delete(id);
       }
     }
@@ -349,6 +424,115 @@ export class NerdiClashGame {
     this.eventListener?.({ event, actorId, details });
   }
 
+  /** Apply a recorded attack once the defense window closes, then clear it. */
+  private applyPendingAttack(): void {
+    if (this.state.pendingAttackDamage10 <= 0 && !this.state.pendingAttackTargetId) return;
+    const target = this.state.players.get(this.state.pendingAttackTargetId);
+    if (target) {
+      target.hp10 = Math.max(0, target.hp10 - this.state.pendingAttackDamage10);
+    }
+    this.emitGameEvent('attack_resolved', this.state.pendingAttackSourceId, {
+      damage10: this.state.pendingAttackDamage10,
+      targetId: this.state.pendingAttackTargetId,
+    });
+    this.state.pendingAttackDamage10 = 0;
+    this.state.pendingAttackSourceId = '';
+    this.state.pendingAttackTargetId = '';
+    this.state.pendingTriggerId = '';
+    this.state.defenseResponseUsed = false;
+  }
+
+  /** Close out the current turn: resolution → draw, rotate the owner, check wins. */
+  private resolveTurn(): void {
+    const phase = this.phaseController.phase;
+    if (phase === Phase.play || phase === Phase.defense) {
+      this.phaseController.requestTransition(Phase.resolution);
+    }
+    this.phaseController.requestTransition(Phase.draw);
+    this.rotateTurnOwner();
+    this.runCheckWin();
+  }
+
+  private runCheckWin(): void {
+    if (this.state.winner) return;
+    const result = checkWin({
+      players: [...this.state.players.values()].map((player) => ({
+        id: player.sessionId,
+        hp10: player.hp10,
+        everGainedHP: player.everGainedHP,
+        mainBoardExpr: [...player.boards][0]?.expression,
+        boards: [...player.boards]
+          .filter((b): b is NonNullable<typeof b> => b !== undefined)
+          .map((b) => ({
+            destroyed: (b as { destroyed?: boolean }).destroyed,
+            isActive: b.isActive,
+            isSingular: b.isSingular,
+            // Schema dimension 0 means "scalar board", not a collapsed vector
+            // space — only a real rank may feed the dim0 win condition.
+            dimension: b.dimension > 0 ? b.dimension : undefined,
+          })),
+      })),
+      variableIsolationTimers: this.state.variable_isolation_timers,
+    });
+    if (!result.winner) return;
+    this.state.winner = result.winner;
+    this.state.winReason = WIN_REASON_BY_ENGINE[result.reason ?? ''] ?? '';
+    this.phaseController.requestTransition(Phase.gameOver);
+  }
+
+  /**
+   * CommandContext.forceEval — evaluate every player's main board at the VVC
+   * value, resolve the showdown, and copy resulting HP back onto the schema.
+   */
+  private runForceEval(nominatorId: string, vvcValue: number): unknown {
+    const wrappers: ForceEvalPlayer[] = [];
+    for (const player of this.state.players.values()) {
+      const board = [...player.boards][0];
+      const evaluated = evaluate({ expression: board?.expression ?? '' }, 0, vvcValue);
+      let lastForceValue = 0;
+      if (evaluated.undefined) {
+        if (board) board.isActive = false;
+      } else {
+        lastForceValue = evaluated.value;
+      }
+      wrappers.push({
+        id: player.sessionId,
+        hp10: player.hp10,
+        lastForceValue,
+        boards: [...player.boards].filter((b): b is NonNullable<typeof b> => b !== undefined),
+      });
+    }
+    const result = engineForceEval({ players: wrappers }, { nominatorId });
+    for (const wrapper of wrappers) {
+      const player = this.state.players.get(wrapper.id);
+      if (player) player.hp10 = wrapper.hp10;
+    }
+    if (result.winner) {
+      this.state.winner = result.winner;
+      this.state.winReason = 'force_eval_domination';
+      this.phaseController.requestTransition(Phase.gameOver);
+    }
+    // A failed nomination destroys the initiator's main board — which may also
+    // end the game — so always follow up with a win check.
+    this.runCheckWin();
+    return result;
+  }
+
+  /** Clearer failure reason when play_card references a card with no routed command. */
+  private unroutedPlayCardReason(sessionId: string, payload: Record<string, unknown>): string | undefined {
+    const cardId = typeof payload.cardId === 'string' ? payload.cardId : undefined;
+    const player = cardId ? this.state.players.get(sessionId) : undefined;
+    const card = player ? [...player.hand].find((candidate) => candidate?.id === cardId) : undefined;
+    if (!card || ROUTED_PLAY_CARD_TYPES.has(card.cardType)) return undefined;
+    if (card.cardType === 'eval') {
+      return 'the Evaluate card is spent automatically by the eval_function intent';
+    }
+    if (card.cardType === 'shield') {
+      return 'shield cards are reactive — use play_defense during the defense phase';
+    }
+    return 'card effect not implemented in v1';
+  }
+
   private findBoardForPlayer(sessionId: string, boardId: string): FunctionBoardSchema | undefined {
     const player = this.state.players.get(sessionId);
     if (!player) return undefined;
@@ -358,6 +542,7 @@ export class NerdiClashGame {
   private dispatchCommand(commandIntent: CommandIntent): CommandResult | Promise<CommandResult> {
     return this.commandDispatcher.dispatch(this.state as unknown as CommandState, {
       evalEngine: { evaluate },
+      forceEval: (_state, nominatorId, vvcValue) => this.runForceEval(nominatorId, vvcValue),
       emitGameEvent: (event, actorId, details) => this.emitGameEvent(event, actorId, details ?? {}),
     }, commandIntent);
   }
@@ -379,7 +564,12 @@ export class NerdiClashGame {
       case 'force_eval': {
         const player = this.state.players.get(playerId);
         const forceCard = player ? [...player.hand].find((card) => card?.cardType === 'forceEval' || card?.subtype === 'Force Evaluation') : undefined;
-        return forceCard ? { intent: 'force-eval', payload: { playerId, cardId: forceCard.id } } : undefined;
+        if (!forceCard) return undefined;
+        // vvcCardId is consumed by ForceEvalCommand; built via a named const so
+        // the extra field survives structural typing whether or not the payload
+        // interface declares it yet.
+        const forcePayload = { playerId, cardId: forceCard.id, vvcCardId: String(payload.variableValueCardId ?? '') };
+        return { intent: 'force-eval', payload: forcePayload };
       }
       case 'play_card': {
         // The JSON bridge receives untrusted JSON directly. Keep this guard even
@@ -428,7 +618,9 @@ export class NerdiClashGame {
           case 'artifactTheorem':
             return { intent: 'theorem-artifact', payload: { playerId, cardId } };
           case 'forceEval':
-            return { intent: 'force-eval', payload: { playerId, cardId } };
+            // play_card carries no VVC — the dedicated force_eval intent does.
+            // Empty vvcCardId fails in ForceEvalCommand with the proper reason.
+            return { intent: 'force-eval', payload: { playerId, cardId, vvcCardId: '' } };
           case 'addBoard': {
             const firstBoard = [...player.boards][0];
             const nextBoardId = `${playerId}_board_${player.boards.length + 1}`;

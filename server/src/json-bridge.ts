@@ -16,6 +16,7 @@ export class JsonBridgeServer {
   private clients = new Map<string, JsonClient>();
   private nextSessionId = 1;
   private snapshotInterval: ReturnType<typeof setInterval> | undefined;
+  private tickInterval: ReturnType<typeof setInterval> | undefined;
   private httpServer: http.Server | undefined;
 
   start(port: number): void {
@@ -33,6 +34,7 @@ export class JsonBridgeServer {
     });
 
     this.snapshotInterval = setInterval(() => this.broadcastSnapshots(), 100);
+    this.tickInterval = setInterval(() => this.game?.tick(Date.now()), 250);
   }
 
   private async handleMessage(ws: WebSocket, data: unknown): Promise<void> {
@@ -79,14 +81,17 @@ export class JsonBridgeServer {
         }
         break;
       }
+      case 'leave_room':
+        // handleDisconnect performs the seat teardown on the close event.
+        ws.close();
+        break;
       case 'draw_cards':
       case 'build_function':
       case 'play_card':
       case 'eval_function':
       case 'force_eval':
       case 'set_trap':
-      case 'play_defense':
-      case 'leave_room': {
+      case 'play_defense': {
         const parsed = parseClientMessage(msg);
         if (!parsed.ok) {
           const path = parsed.error.issues.map((issue) => issue.path.join('.')).join('; ');
@@ -209,6 +214,10 @@ export class JsonBridgeServer {
     if (this.snapshotInterval) {
       clearInterval(this.snapshotInterval);
       this.snapshotInterval = undefined;
+    }
+    if (this.tickInterval) {
+      clearInterval(this.tickInterval);
+      this.tickInterval = undefined;
     }
     this.wss?.close();
     for (const client of this.clients.values()) {

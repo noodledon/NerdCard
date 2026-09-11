@@ -85,6 +85,12 @@ export interface CommandState {
   forceEvalRequested?: boolean;
   pendingTriggerId?: string;
   defenseResponseUsed?: boolean;
+  turnIndex?: number;
+  winner?: string;
+  winReason?: string;
+  pendingAttackDamage10?: number;
+  pendingAttackSourceId?: string;
+  pendingAttackTargetId?: string;
 }
 
 export interface EvalEngineResult {
@@ -104,7 +110,7 @@ export interface CommandContext {
       vvcValue: number,
     ): EvalEngineResult;
   };
-  forceEval?(state: CommandState, nominatorId?: string): unknown;
+  forceEval?(state: CommandState, nominatorId: string, vvcValue: number): unknown;
   emitGameEvent?(event: string, actorId: string, details?: Record<string, unknown>): void;
 }
 
@@ -176,6 +182,16 @@ export function findCard(
 ): CommandCard | undefined {
   for (const card of player.hand) {
     if (card.id === cardId) return card;
+  }
+  return undefined;
+}
+
+export function findCardBySubtype(
+  player: CommandPlayer,
+  subtype: string,
+): CommandCard | undefined {
+  for (const card of player.hand) {
+    if (card?.subtype === subtype) return card;
   }
   return undefined;
 }

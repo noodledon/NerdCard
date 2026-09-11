@@ -23,6 +23,20 @@ describe('evaluation engine', () => {
     const result = forceEval({ players: [a, b] }, { nominatorId: 'A' });
     expect(result.winner).toBeUndefined();
     expect(result.nominatorBoardDestroyed).toBe(true);
+    expect(a.hp10).toBe(50);
+    expect(b.hp10).toBe(300);
+    expect(result.redistributions).toEqual([]);
+  });
+
+  it('redistributes the nominator half to an opponent that beats its value', () => {
+    const a = { id: 'A', hp10: 101, lastForceValue: 60, boards: [{}] };
+    const b = { id: 'B', hp10: 200, lastForceValue: 80, boards: [{}] };
+    const result = forceEval({ players: [a, b] }, { nominatorId: 'A' });
+    expect(result.winner).toBeUndefined();
+    expect(result.nominatorBoardDestroyed).toBe(true);
+    expect(a.hp10).toBe(51);
+    expect(b.hp10).toBe(250);
+    expect(result.redistributions).toEqual([{ from: 'A', to: 'B', hp10Transferred: 50 }]);
   });
 
   it('transfers floored half HP after domination', () => {

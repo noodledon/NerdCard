@@ -104,8 +104,8 @@ describe('validation — valid inputs accepted', () => {
     expect(validatePolynomial(parseExpression('x^5 + x'), { maxDegree: 5 }).ok).toBe(true);
   });
 
-  it('polynomial single variable only', () => {
-    expect(validatePolynomial(parseExpression('x^5 + x'), { maxDegree: 5 }).ok).toBe(true);
+  it('polynomial allows multiple variables (doc example: x^2 + y)', () => {
+    expect(validatePolynomial(parseExpression('x^2 + y'), { maxDegree: 5 }).ok).toBe(true);
   });
 
   it('trig sin+cos+tan + a+b+c (6 terms) accepted', () => {
@@ -170,9 +170,10 @@ describe('validation — invalid inputs rejected', () => {
     expect(r.ok).toBe(false);
   });
 
-  it('rejects polynomial with two variables', () => {
-    const r = validatePolynomial(parseExpression('x*y + 1'), { maxDegree: 5 });
+  it('rejects polynomial with degree >5 in any variable', () => {
+    const r = validatePolynomial(parseExpression('x^6 + y'), { maxDegree: 5 });
     expect(r.ok).toBe(false);
+    expect(typeof r.reason).toBe('string');
   });
 
   it('rejects nested power e^(x^x)', () => {

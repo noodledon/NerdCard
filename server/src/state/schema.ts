@@ -294,6 +294,23 @@ export class GameRoomState extends Schema {
   @type('boolean')
   forceEvalRequested: boolean = false;
 
+  /** Damage (hp10 units) recorded by an offensive card and applied when the
+   *  defense window closes. 0 = no pending attack. */
+  @type('number')
+  pendingAttackDamage10: number = 0;
+
+  /** sessionId of the attacking player. */
+  @type('string')
+  pendingAttackSourceId: string = '';
+
+  /** sessionId of the defending player (the one allowed to play_defense). */
+  @type('string')
+  pendingAttackTargetId: string = '';
+
+  /** Wire winReason once winner is decided (see shared/types.ts WinReason). */
+  @type('string')
+  winReason: string = '';
+
   @type('number')
   turnIndex: number = 0;
 
