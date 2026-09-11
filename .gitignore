@@ -56,6 +56,7 @@ report.md
 # Dev/QA tooling
 server/qa-runner.mjs
 server/playmatch.mjs
+server/*probe*.mjs
 
 # Client dev tools
 client/tools/
