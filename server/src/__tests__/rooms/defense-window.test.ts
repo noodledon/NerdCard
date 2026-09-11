@@ -175,6 +175,43 @@ describe('defense window', () => {
     expect(game.state.currentTurnPlayerId).toBe('p2');
     expect(game.state.pendingAttackTargetId).toBe('');
   });
+
+  it('opens the defense window when the play deadline elapses mid-attack', async () => {
+    const game = await gameInPlay();
+    const p2 = requirePlayer(game, 'p2');
+    p2.hp10 = 100;
+    giveCard(game, 'p1', 'act-offensive-001');
+
+    const attack = await dispatch(game, 'p1', 'play_card', {
+      cardId: 'act-offensive-001',
+      target: { kind: 'opp', id: 'p2' },
+    });
+    expect(attack.ok).toBe(true);
+    expect(game.state.pendingAttackTargetId).toBe('p2');
+
+    // The play deadline elapses with the attack still pending: instead of the
+    // FSM's play→resolution auto-pass, the tick must open the defense window.
+    game.tick(game.state.turnDeadline + 1);
+    expect(game.state.phase).toBe(Phase.defense);
+    expect(game.state.pendingAttackTargetId).toBe('p2');
+    expect(game.state.pendingAttackDamage10).toBe(5);
+    expect(game.state.currentTurnPlayerId).toBe('p1');
+    expect(p2.hp10).toBe(100);
+
+    // The defense deadline then lands the attack on a later tick.
+    game.tick(game.state.turnDeadline + 1);
+    expect(p2.hp10).toBe(95);
+    expect(game.state.phase).toBe(Phase.draw);
+    expect(game.state.currentTurnPlayerId).toBe('p2');
+    expect(game.state.pendingAttackTargetId).toBe('');
+  });
+
+  it('resolves a quiet play-deadline auto-pass straight to draw', async () => {
+    const game = await gameInPlay();
+    game.tick(game.state.turnDeadline + 1);
+    expect(game.state.phase).toBe(Phase.draw);
+    expect(game.state.currentTurnPlayerId).toBe('p2');
+  });
 });
 
 describe('hp_zero win', () => {
@@ -307,5 +344,19 @@ describe('state snapshot additions', () => {
     // p1 drew 2 fcc cards during the gameInPlay drive; p2's piles are untouched.
     expect(players.p1?.deckCounts.fcc).toBe(8);
     expect(players.p2?.deckCounts).toEqual({ fcc: 10, number: 6, action: 9 });
+  });
+
+  it('joins catalog display names onto hand entries', async () => {
+    const game = await gameInPlay();
+    const snapshot = game.getStateSnapshot() as Record<string, unknown>;
+    const players = snapshot.players as Record<string, { hand: Array<{ id: string; name: string }> }>;
+    const p1Hand = players.p1?.hand ?? [];
+    // Every player starts with all five Anchors seeded into hand.
+    const anchor = p1Hand.find((card) => card.id === 'vvc-1');
+    expect(anchor?.name).toBe('Variable Anchor: 2');
+    for (const card of p1Hand) {
+      expect(typeof card.name).toBe('string');
+      expect(card.name.length).toBeGreaterThan(0);
+    }
   });
 });

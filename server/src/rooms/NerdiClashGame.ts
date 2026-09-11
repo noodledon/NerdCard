@@ -24,6 +24,9 @@ const WIN_REASON_BY_ENGINE: Record<string, string> = {
   dim0: 'singular_board',
 };
 
+/** Catalog id → display name, used to enrich hand entries in snapshots. */
+const CARD_NAME_BY_ID = new Map(loadCatalog().map((card) => [card.id, card.name]));
+
 /** play_card cardTypes that toCommandIntent already routes to a command. */
 const ROUTED_PLAY_CARD_TYPES = new Set([
   'addTerm', 'derivative', 'offensive', 'martialTheorem', 'trap',
@@ -111,12 +114,42 @@ export class NerdiClashGame {
 
   tick(now: number): void {
     const previousPhase = this.phaseController.phase;
-    this.phaseController.tick(now);
+    // A play deadline that elapses with a pending attack must open the same
+    // defense window the end_turn path grants — otherwise an AFK attacker
+    // would bypass the defender's reactive cards entirely. play→defense is a
+    // legal transition but resolution→defense is not, so this intercept must
+    // run BEFORE phaseController.tick performs the FSM's play→resolution
+    // auto-pass. The defense deadline then lands the attack on a later tick
+    // via the defense→resolution auto-pass below.
+    if (
+      previousPhase === Phase.play
+      && this.state.turnDeadline > 0
+      && now >= this.state.turnDeadline
+      && this.state.pendingAttackTargetId
+    ) {
+      if (!this.state.pendingTriggerId) {
+        this.state.pendingTriggerId = `attack-${this.state.turnIndex}`;
+      }
+      this.phaseController.requestTransition(Phase.defense, now);
+      this.runCheckWin();
+      return;
+    }
+    const fsmEvents = this.phaseController.tick(now);
     const phase = this.phaseController.phase;
     if ((previousPhase === Phase.play || previousPhase === Phase.defense) && phase === Phase.resolution) {
       // Auto-pass: a play/defense deadline elapsed, so the turn resolves here.
-      // A pending attack lands without a defense window (MVP simplification).
+      // The defender already had (or never earned) a defense window, so any
+      // pending attack lands now.
       this.applyPendingAttack();
+      // A 'force-eval' event means a stalling counter tripped inside the FSM.
+      // Settle a possible kill from the landed attack first and skip the
+      // showdown entirely if the game is already decided.
+      if (fsmEvents.includes('force-eval')) {
+        this.runCheckWin();
+        if (!this.state.winner) {
+          this.runStallingForceEval(this.state.currentTurnPlayerId);
+        }
+      }
       this.phaseController.requestTransition(Phase.draw);
       this.rotateTurnOwner();
     } else if (previousPhase === Phase.resolution && phase === Phase.draw) {
@@ -240,12 +273,18 @@ export class NerdiClashGame {
     }
 
     // Advance stalling counters before resetting the flag so we read the true
-    // value for this turn. onEvalTurn resets consecutive_no_eval_turns; 
+    // value for this turn. onEvalTurn resets consecutive_no_eval_turns;
     // onNoEvalTurn increments both counters and may return force-eval events.
     if (player.evaluatedThisTurn) {
       this.phaseController.onEvalTurn();
     } else {
-      this.phaseController.onNoEvalTurn();
+      const fsmEvents = this.phaseController.onNoEvalTurn();
+      if (fsmEvents.includes('force-eval')) {
+        // §8.5 anti-stall: the staller's turn ending trips the showdown while
+        // any recorded attack is still pending (it resolves via the defense
+        // window below if the game continues).
+        this.runStallingForceEval(sessionId);
+      }
     }
     player.aggressiveActionUsedThisTurn = false;
     player.offensivePlayedThisTurn = false;
@@ -316,6 +355,10 @@ export class NerdiClashGame {
             deckAction: [...player.deckAction].filter((c): c is NonNullable<typeof c> => c !== undefined).map((c) => ({ id: c.id, name: c.subtype })),
             hand: [...player.hand].filter((c): c is NonNullable<typeof c> => c !== undefined).map((c) => ({
               id: c.id,
+              // Display name joined from the catalog — CardSchema deliberately
+              // has no name field (keeps the ≤64-field guard happy); unknown
+              // ids fall back to the subtype so clients always get a label.
+              name: CARD_NAME_BY_ID.get(c.id) ?? c.subtype,
               cardType: c.cardType,
               subtype: c.subtype,
               numericValue: c.numericValue,
@@ -516,6 +559,26 @@ export class NerdiClashGame {
     // end the game — so always follow up with a win check.
     this.runCheckWin();
     return result;
+  }
+
+  /**
+   * Rulebook §8.5 anti-stall showdown, fired when a no-eval counter trips.
+   *
+   * v1 auto-trigger contract:
+   * - The nominator is the player whose turn just ended — the staller pays any
+   *   failed-domination penalty, which is the anti-stall pressure.
+   * - vvcValue is fixed at 1, a neutral fixed point: an automatic trigger has
+   *   no per-player VVC choice.
+   * - No Force Evaluation card is consumed — this is a phase event, not a
+   *   card play.
+   * - consecutive_no_eval_turns restarts afterward (a forced eval is an eval);
+   *   global_no_eval_turns never resets (locked constraint).
+   */
+  private runStallingForceEval(nominatorId: string): void {
+    const counter = this.state.consecutive_no_eval_turns >= 5 ? 'consecutive' : 'global';
+    this.emitGameEvent('force_eval', nominatorId, { trigger: 'stalling', counter });
+    this.runForceEval(nominatorId, 1);
+    this.phaseController.onEvalTurn();
   }
 
   /** Clearer failure reason when play_card references a card with no routed command. */
