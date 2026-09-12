@@ -1,3 +1,5 @@
+import { isIsolatedExpression } from '../math/expressions.js';
+
 export type WinReason = 'hp0' | 'isolation' | 'force-dom' | 'singular' | 'dim0';
 
 export interface WinBoard {
@@ -38,10 +40,6 @@ function opponentId(players: WinPlayer[], loserId: string): string | undefined {
   return players.find((player) => player.id !== loserId)?.id;
 }
 
-function isIsolated(expression: string | undefined): boolean {
-  return expression !== undefined && /^[a-z]$/.test(expression.trim());
-}
-
 export function checkWin(state: WinState): WinResult {
   const players = [...state.players];
   const base: WinResult = { destroyedPlayerBoards: [] };
@@ -58,7 +56,7 @@ export function checkWin(state: WinState): WinResult {
   }
 
   for (const player of players) {
-    if (isIsolated(player.mainBoardExpr) && timerFor(state, player.id) === 0) {
+    if (isIsolatedExpression(player.mainBoardExpr) && timerFor(state, player.id) === 0) {
       return { ...base, winner: opponentId(players, player.id), loser: player.id, reason: 'isolation' };
     }
   }

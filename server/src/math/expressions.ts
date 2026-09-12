@@ -1,5 +1,6 @@
 import * as math from 'mathjs';
 import type { MathNode } from 'mathjs';
+import { countDistinctVariables } from './counters.js';
 
 // Re-export MathNode so T8's validators (and other math modules) can import the
 // node type from this single gateway module.
@@ -102,4 +103,37 @@ export function roundtrip(input: string): {
     math.symbolicEqual(parsed, reparsed) === true ||
     serialized === serialize(reparsed);
   return { original: input, serialized, reparsed, equal };
+}
+
+/**
+ * W9-T6 — "reduced to a single variable" (rulebook isolation win).
+ *
+ * Distinct gameplay-variable count for an expression STRING, or `undefined`
+ * when the input is empty or unparseable. Post-eval boards keep
+ * `expression = ''` while staying `isActive`, and this runs inside
+ * `requestEndTurn`/`checkWin` — callers must never see the parse throw, so
+ * the failure is reported as `undefined` instead.
+ *
+ * `listVariables` already excludes built-in constants (`pi`, `e`, `phi`, `i`,
+ * …) and function-name symbols, so `sin(x)` counts one variable while `x+y`
+ * counts two.
+ */
+export function distinctVariablesInExpression(expression: string | undefined): number | undefined {
+  if (expression === undefined || expression.trim().length === 0) return undefined;
+  try {
+    return countDistinctVariables(parseExpression(expression));
+  } catch {
+    return undefined;
+  }
+}
+
+/**
+ * An expression is isolated iff it has exactly one distinct variable — any
+ * form qualifies (`x`, `3*x`, `x^2`, `x+1`), not just the single-letter
+ * literal the previous `/^[a-z]$/` check required. This is the single source
+ * of truth for the isolation predicate: `checkWin` and the
+ * `tickIsolationTimers` countdown must never drift apart again.
+ */
+export function isIsolatedExpression(expression: string | undefined): boolean {
+  return distinctVariablesInExpression(expression) === 1;
 }
