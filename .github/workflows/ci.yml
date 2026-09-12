@@ -1,0 +1,57 @@
+name: ci
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+
+jobs:
+  # Server gate — runs the same commands as server/scripts/verify.sh:
+  # typecheck, vitest, and the v8 coverage thresholds in vitest.config.ts.
+  # No reduced CI variant; the headless Godot scene check stays local-only
+  # (no Godot binary on runners — see AGENTS.md / verify.sh).
+  server:
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: server
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 20
+          cache: npm
+          cache-dependency-path: server/package-lock.json
+      - run: npm ci
+      - run: npm run typecheck
+      - run: npm test
+      - run: npm run test:coverage
+
+  # Optional: the same suite routed through the SymPy engine (USE_SYMPY=true).
+  # continue-on-error so a flaky service build never blocks the main gate;
+  # mathjs remains the default engine (wave-6 design).
+  sympy:
+    runs-on: ubuntu-latest
+    continue-on-error: true
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 20
+          cache: npm
+          cache-dependency-path: server/package-lock.json
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+          cache: pip
+          cache-dependency-path: sympy-service/requirements.txt
+      - name: Install SymPy service deps
+        run: |
+          python -m venv sympy-service/.venv
+          sympy-service/.venv/bin/pip install -r sympy-service/requirements.txt
+      - name: npm ci
+        working-directory: server
+        run: npm ci
+      - name: Server suite with SymPy engine
+        working-directory: server
+        run: ./scripts/test-with-sympy.sh
