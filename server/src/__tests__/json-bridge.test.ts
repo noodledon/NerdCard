@@ -1,8 +1,12 @@
-import { afterEach, beforeEach, describe, expect, it } from 'vitest';
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import http from 'http';
 import { WebSocket } from 'ws';
 import { JsonBridgeServer } from '../json-bridge.js';
 import { ErrorCode } from '../shared/ErrorCode.js';
+import { mathEngine } from '../math/index.js';
+import type { EngineResult } from '../math/index.js';
+import type { NerdiClashGame } from '../rooms/NerdiClashGame.js';
+import { CardSchema, addToHand } from '../state/schema.js';
 
 /**
  * In-repo smoke coverage for the JSON bridge — the only transport the Godot
@@ -445,5 +449,79 @@ describe('JsonBridgeServer', () => {
     const resp = await offClient.waitFor(isResponse, 3000, 'play_card response');
     expect(resp.type).toBe('error');
     expect(resp.code).toBe(ErrorCode.NOT_YOUR_TURN);
+  });
+
+  /**
+   * Wave-10 T4: intents and ticks share one FIFO lane. With the math engine
+   * stalled mid-`play_card`, neither a following `end_turn` nor an expired
+   * play deadline (which the 250ms interval tick would otherwise consume)
+   * may mutate state until the in-flight intent resolves.
+   */
+  it('serializes intents and ticks — a slow engine cannot interleave', async () => {
+    const { c1, c2, sid1, sid2 } = await joinTwoPlayers();
+
+    const conSnap = await c1.waitFor(snapshotPhase('construction'), 3000, 'construction snapshot');
+    const players = snapshotState(conSnap).players ?? {};
+    const board1 = players[sid1]?.boards?.[0]?.boardId;
+    const board2 = players[sid2]?.boards?.[0]?.boardId;
+
+    c1.send({ type: 'build_function', boardId: board1, expression: 'x' });
+    c2.send({ type: 'build_function', boardId: board2, expression: 'x' });
+    await c1.waitFor(isResponse, 3000, 'build_function response');
+    await c2.waitFor(isResponse, 3000, 'build_function response');
+
+    const drawSnap = await c1.waitFor(snapshotPhase('draw'), 3000, 'draw snapshot');
+    const turnId = String(snapshotState(drawSnap).currentTurnPlayerId);
+    const turnClient = turnId === sid1 ? c1 : c2;
+
+    turnClient.send({ type: 'draw_cards', deckChoices: [{ deck: 'action', count: 2 }] });
+    const draw = await turnClient.waitFor(isResponse, 3000, 'draw_cards response');
+    expect(draw).toMatchObject({ type: 'ack', intent: 'draw_cards' });
+    await turnClient.waitFor(snapshotPhase('play'), 3000, 'play snapshot');
+
+    // Hand the turn player an Integral card straight into state — the FCC
+    // draw is shuffled, so seeding beats drawing and praying.
+    const game = (bridge as unknown as { game?: NerdiClashGame }).game;
+    expect(game).toBeDefined();
+    const player = game?.state.players.get(turnId);
+    expect(player).toBeDefined();
+    const integral = new CardSchema();
+    integral.id = 'fcc-calc-integral-001';
+    integral.cardType = 'integral';
+    integral.subtype = 'Integral';
+    integral.deckType = 'fcc';
+    addToHand(player as NonNullable<typeof player>, integral);
+
+    let release!: (result: EngineResult) => void;
+    const gate = new Promise<EngineResult>((resolve) => { release = resolve; });
+    const spy = vi.spyOn(mathEngine, 'integrate').mockImplementation(() => gate);
+
+    try {
+      turnClient.send({ type: 'play_card', cardId: integral.id, target: { kind: 'none' } });
+      turnClient.send({ type: 'end_turn' });
+
+      // Wait long enough for the intent to be in-flight, then let the play
+      // deadline lapse and outlast several tick intervals — an unqueued tick
+      // would auto-pass play→resolution→draw and rotate the turn owner.
+      await sleep(50);
+      if (game) game.state.turnDeadline = Date.now() - 1;
+      await sleep(600);
+
+      expect(game?.state.phase).toBe('play');
+      expect(game?.state.currentTurnPlayerId).toBe(turnId);
+
+      release({ ok: true, supported: true, value: 'x^2/2' });
+
+      const playResp = await turnClient.waitFor(isResponse, 3000, 'play_card response');
+      expect(playResp).toMatchObject({ type: 'ack', intent: 'play_card' });
+      const endResp = await turnClient.waitFor(isResponse, 3000, 'end_turn response');
+      expect(endResp).toMatchObject({ type: 'ack', intent: 'end_turn' });
+
+      const next = await turnClient.waitFor(snapshotPhase('draw'), 3000, 'post-resolve draw');
+      expect(snapshotState(next).currentTurnPlayerId).not.toBe(turnId);
+      expect(spy).toHaveBeenCalledTimes(1);
+    } finally {
+      spy.mockRestore();
+    }
   });
 });

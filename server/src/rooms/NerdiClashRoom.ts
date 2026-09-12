@@ -47,6 +47,14 @@ type JoinOptions = { displayName?: string };
 export class NerdiClashRoom extends ColyseusRoom {
   private game!: NerdiClashGame;
   private disconnectTimer: ReturnType<typeof setTimeout> | undefined;
+  /**
+   * Single ordered mutation lane — same rationale as the JSON bridge: a
+   * SymPy-backed command awaits HTTP inside dispatchIntent, so concurrent
+   * onMessage deliveries (or a simulation tick) could otherwise interleave
+   * with it. Join/leave stay off the lane.
+   */
+  private intentQueue: Promise<void> = Promise.resolve();
+  private tickQueued = false;
 
   async onCreate(_options: unknown): Promise<void> {
     this.game = new NerdiClashGame();
@@ -80,8 +88,25 @@ export class NerdiClashRoom extends ColyseusRoom {
       this.onMessage(type, (client, payload) => handler(client, payload));
     });
     this.setSimulationInterval(() => {
-      this.game.tick(Date.now());
+      this.queueTick();
     }, 250);
+  }
+
+  /** Append work to the mutation lane; the chain itself never rejects. */
+  private runSerialized<T>(fn: () => T | Promise<T>): Promise<T> {
+    const run = this.intentQueue.then(fn);
+    this.intentQueue = run.then(() => undefined, () => undefined);
+    return run;
+  }
+
+  /** Enqueue the simulation tick behind any in-flight intent; coalesces. */
+  private queueTick(): void {
+    if (this.tickQueued) return;
+    this.tickQueued = true;
+    void this.runSerialized(() => {
+      this.tickQueued = false;
+      this.game.tick(Date.now());
+    }).catch((err) => console.error('[NerdiClashRoom] tick error:', err));
   }
 
   onAuth(_client: NerdiClashClient, _options: unknown, _request: unknown): boolean {
@@ -131,28 +156,18 @@ export class NerdiClashRoom extends ColyseusRoom {
   async dispatchIntent(client: HandlerClient, intent: string, payload: Record<string, unknown>): Promise<void> {
     if (intent === 'ready_inst') return;
 
-    if (intent === 'draw_cards') {
-      const rawResult = this.game.dispatchIntent(client.sessionId, intent, payload);
-      const result = await Promise.resolve(rawResult);
-      if (!result.ok) {
-        client.send('error', {
-          code: this.errorCodeFor(result.reason),
-          message: result.reason ?? 'draw rejected',
-        });
-      }
-      return;
-    }
-
-    const rawResult = this.game.dispatchIntent(client.sessionId, intent, payload);
-    const result = await Promise.resolve(rawResult);
+    const result = await this.runSerialized(async () =>
+      this.game.dispatchIntent(client.sessionId, intent, payload));
     if (!result.ok) {
-      client.send('error', { code: this.errorCodeFor(result.reason), message: result.reason ?? 'command rejected' });
-      return;
+      client.send('error', {
+        code: this.errorCodeFor(result.reason),
+        message: result.reason ?? (intent === 'draw_cards' ? 'draw rejected' : 'command rejected'),
+      });
     }
   }
 
   async requestEndTurn(client: HandlerClient): Promise<void> {
-    const result = this.game.requestEndTurn(client.sessionId);
+    const result = await this.runSerialized(() => this.game.requestEndTurn(client.sessionId));
     if (!result.ok) {
       client.send('error', { code: ErrorCode.INTERNAL, message: result.reason ?? 'end turn failed' });
     }

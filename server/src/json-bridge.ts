@@ -5,6 +5,7 @@ import { NerdiClashGame } from './rooms/NerdiClashGame.js';
 import { Phase } from './logic/fsm.js';
 import { ErrorCode } from './shared/ErrorCode.js';
 import { parseClientMessage } from './shared/messages.js';
+import type { CommandResult } from './commands/base.js';
 
 interface JsonClient {
   ws: WebSocket;
@@ -38,6 +39,18 @@ export class JsonBridgeServer {
   private readonly reconnectTokens = new Map<string, string>();
   /** Last-seen-pong flag per socket for the heartbeat sweep. */
   private readonly socketLiveness = new WeakMap<WebSocket, boolean>();
+  /**
+   * Single ordered mutation lane. SymPy-backed commands (integral, limit, LA
+   * ops) await HTTP inside dispatchIntent — without serialization a second
+   * intent could mutate state between the first's validation and mutation.
+   * Intents and ticks chain through this promise so they run strictly in
+   * arrival order. Lifecycle (join/leave/disconnect) deliberately bypasses
+   * it. The queue spans game instances harmlessly: stale work self-rejects
+   * via the `this.game === game` guard at each call site.
+   */
+  private intentQueue: Promise<void> = Promise.resolve();
+  /** Set while a tick waits on the lane — collapses back-to-back firings. */
+  private tickQueued = false;
 
   start(port: number): void {
     this.httpServer = http.createServer();
@@ -56,8 +69,29 @@ export class JsonBridgeServer {
     });
 
     this.snapshotInterval = setInterval(() => this.broadcastSnapshots(), 100);
-    this.tickInterval = setInterval(() => this.game?.tick(Date.now()), 250);
+    this.tickInterval = setInterval(() => this.queueTick(), 250);
     this.heartbeatInterval = setInterval(() => this.runHeartbeat(), HEARTBEAT_INTERVAL_MS);
+  }
+
+  /** Append work to the mutation lane; the chain itself never rejects. */
+  private runSerialized<T>(fn: () => T | Promise<T>): Promise<T> {
+    const run = this.intentQueue.then(fn);
+    this.intentQueue = run.then(() => undefined, () => undefined);
+    return run;
+  }
+
+  /**
+   * Interval callback: enqueue the tick behind any in-flight intent. Firings
+   * that arrive while a tick is already waiting collapse into it — a long
+   * SymPy call produces one catch-up tick, not a pile-up of stale ones.
+   */
+  private queueTick(): void {
+    if (this.tickQueued) return;
+    this.tickQueued = true;
+    void this.runSerialized(() => {
+      this.tickQueued = false;
+      this.game?.tick(Date.now());
+    }).catch((err) => console.error('[JsonBridge] tick error:', err));
   }
 
   private async handleMessage(ws: WebSocket, data: unknown): Promise<void> {
@@ -90,13 +124,20 @@ export class JsonBridgeServer {
       this.send(ws, { type: 'error', code: 'NO_GAME', message: 'Game not initialized' });
       return;
     }
+    // Bind the queued work to the game that existed at arrival: if the room
+    // is torn down and rebuilt before the intent runs, it must not mutate a
+    // different game than the one the player joined.
+    const game = this.game;
 
     switch (msgType) {
       case 'ready_inst':
         this.send(ws, { type: 'ack', intent: 'ready_inst' });
         break;
       case 'end_turn': {
-        const result = this.game.requestEndTurn(client.sessionId);
+        const result = await this.runSerialized(async (): Promise<CommandResult> => {
+          if (this.game !== game) return { ok: false, reason: 'game is gone' };
+          return game.requestEndTurn(client.sessionId);
+        });
         if (!result.ok) {
           this.send(ws, { type: 'error', code: this.errorCodeFor(result.reason), message: result.reason ?? 'end turn failed' });
         } else {
@@ -122,8 +163,11 @@ export class JsonBridgeServer {
           return;
         }
         const payload: Record<string, unknown> = { ...parsed.message };
-        const rawResult = this.game.dispatchIntent(client.sessionId, parsed.message.type, payload);
-        const result = await Promise.resolve(rawResult);
+        const intentType = parsed.message.type;
+        const result = await this.runSerialized(async (): Promise<CommandResult> => {
+          if (this.game !== game) return { ok: false, reason: 'game is gone' };
+          return game.dispatchIntent(client.sessionId, intentType, payload);
+        });
         if (!result.ok) {
           this.send(ws, {
             type: 'error',
