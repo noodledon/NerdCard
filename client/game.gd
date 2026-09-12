@@ -134,6 +134,13 @@ var _defense_pass_button: Button
 ## each name is an isolated 2P game, blank falls back to "nerdiclash".
 var _room_line_edit: LineEdit
 
+## Room directory UI, code-built in _ready (same convention): a Refresh
+## button on the connect row and a list directly under ConnectRow. The
+## bridge's list_rooms is pull-only, so Refresh re-asks; a row click fills
+## the room field — joining stays the Connect button's job.
+var _refresh_rooms_button: Button
+var _rooms_vbox: VBoxContainer
+
 ## Rematch button, code-built into the scene's GameOverVBox in _ready (same
 ## convention as the defense banner — game.tscn untouched). Rematch votes
 ## ride the game_event stream, not snapshots, so the opponent's vote is
@@ -155,8 +162,10 @@ func _ready() -> void:
 	ConnectionManager.connect("state_changed", Callable(self, "_on_state_changed"))
 	ConnectionManager.connect("error", Callable(self, "_on_connection_error"))
 	ConnectionManager.connect("rematch_offered", Callable(self, "_on_rematch_offered"))
+	ConnectionManager.connect("room_listed", Callable(self, "_on_room_listed"))
 	_build_defense_banner()
 	_build_room_field()
+	_build_room_browser()
 	_build_rematch_button()
 	_render_from_model()
 
@@ -171,6 +180,49 @@ func _build_room_field() -> void:
 	_room_line_edit.custom_minimum_size = Vector2(120, 0)
 	connect_row.add_child(_room_line_edit)
 	connect_row.move_child(_room_line_edit, 1)
+
+
+## Refresh goes on the connect row (between ConnectButton and StatusLabel);
+## the rows themselves stack in a VBox directly under ConnectRow.
+func _build_room_browser() -> void:
+	_refresh_rooms_button = Button.new()
+	_refresh_rooms_button.text = "Refresh"
+	_refresh_rooms_button.tooltip_text = "List rooms on this server"
+	_refresh_rooms_button.pressed.connect(_on_refresh_rooms_pressed)
+	connect_row.add_child(_refresh_rooms_button)
+	connect_row.move_child(_refresh_rooms_button, 3)
+	_rooms_vbox = VBoxContainer.new()
+	main_vbox.add_child(_rooms_vbox)
+	main_vbox.move_child(_rooms_vbox, connect_row.get_index() + 1)
+
+
+## Refresh doubles as the lobby dial: a cold socket browses without taking
+## a seat (browse_rooms), a live one just re-asks.
+func _on_refresh_rooms_pressed() -> void:
+	ConnectionManager.browse_rooms(ip_line_edit.text)
+
+
+func _on_room_listed(rooms: Array) -> void:
+	for child in _rooms_vbox.get_children():
+		child.queue_free()
+	if rooms.is_empty():
+		var empty_label := Label.new()
+		empty_label.text = "No rooms on this server — connect to start one."
+		empty_label.add_theme_color_override("font_color", TEXT_DIM)
+		_rooms_vbox.add_child(empty_label)
+		return
+	for entry in rooms:
+		var info: Dictionary = entry
+		var listed_name: String = String(info.get("name", ""))
+		var row := Button.new()
+		row.alignment = HORIZONTAL_ALIGNMENT_LEFT
+		row.text = "%s — %d/2 — %s" % [
+			listed_name,
+			int(info.get("playerCount", 0)),
+			String(info.get("phase", "waiting")),
+		]
+		row.pressed.connect(func() -> void: _room_line_edit.text = listed_name)
+		_rooms_vbox.add_child(row)
 
 
 func _on_connect_button_pressed() -> void:

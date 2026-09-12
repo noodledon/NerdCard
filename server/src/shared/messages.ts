@@ -84,6 +84,12 @@ export const RematchSchema = z.object({
   type: z.literal('rematch'),
 });
 
+// Lobby-level directory pull, answered by the JSON bridge before the join
+// gate — any connected socket may ask, seated or not.
+export const ListRoomsSchema = z.object({
+  type: z.literal('list_rooms'),
+});
+
 export const ClientMessage = z.discriminatedUnion('type', [
   BuildFunctionSchema,
   PlayCardSchema,
@@ -96,6 +102,7 @@ export const ClientMessage = z.discriminatedUnion('type', [
   ReadyInstSchema,
   LeaveRoomSchema,
   RematchSchema,
+  ListRoomsSchema,
 ]);
 
 export type ClientMessage = z.infer<typeof ClientMessage>;
@@ -143,6 +150,21 @@ export const ServerErrorSchema = z.object({
   retryable: z.boolean(),
 });
 
+export const RoomInfoSchema = z.object({
+  name: z.string(),
+  /** Seated players, including disconnected-but-reclaimable seats. */
+  playerCount: z.number().int().min(0),
+  /** Live sockets currently holding a seat in the room. */
+  connected: z.number().int().min(0),
+  phase: z.string(),
+});
+
+// Bridge answer to list_rooms — a pull snapshot, never pushed.
+export const RoomListSchema = z.object({
+  type: z.literal('room_list'),
+  rooms: z.array(RoomInfoSchema),
+});
+
 export const ServerMessage = z.discriminatedUnion('type', [
   StateSnapshotSchema,
   PhaseChangeSchema,
@@ -152,6 +174,7 @@ export const ServerMessage = z.discriminatedUnion('type', [
   TrapTriggeredSchema,
   GameOverSchema,
   ServerErrorSchema,
+  RoomListSchema,
 ]);
 
 export type ServerMessage = z.infer<typeof ServerMessage>;

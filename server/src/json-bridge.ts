@@ -178,6 +178,12 @@ export class JsonBridgeServer {
       this.handleJoin(ws, msg);
       return;
     }
+    if (msgType === 'list_rooms') {
+      // Lobby-level like join_room: any connected socket may browse the
+      // directory — a seat in a room is not required to ask what exists.
+      this.handleListRooms(ws);
+      return;
+    }
 
     const client = this.findClientByWs(ws);
     if (!client) {
@@ -361,6 +367,23 @@ export class JsonBridgeServer {
       // phase right away instead of waiting for the next 100ms interval tick.
       this.broadcastSnapshots(slot);
     }
+  }
+
+  /**
+   * Room directory pull — a snapshot read of the slot map, not a
+   * subscription (clients re-ask to refresh). playerCount counts seated
+   * players including dropped-but-reclaimable seats; connected counts only
+   * live sockets. Aggregate fields only: no sessionIds, tokens, or hand
+   * data ever cross this boundary.
+   */
+  private handleListRooms(ws: WebSocket): void {
+    const rooms = [...this.slots.values()].map((slot) => ({
+      name: slot.name,
+      playerCount: slot.game?.playerCount() ?? 0,
+      connected: slot.clients.size,
+      phase: slot.game?.state.phase ?? Phase.waiting,
+    }));
+    this.send(ws, { type: 'room_list', rooms });
   }
 
   private handleDisconnect(ws: WebSocket): void {

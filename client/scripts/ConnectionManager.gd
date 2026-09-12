@@ -23,6 +23,10 @@
 ##     Sending the prior sessionId + reconnectToken pair reclaims a
 ##     disconnected seat (json-bridge.ts handleJoin reconnection branch);
 ##     the token proves seat ownership — sessionIds are guessable.
+##   Room directory: `{"type": "list_rooms"}` outbound is lobby-level — the
+##     bridge answers ANY connected socket, seated or not, with
+##     `{"type": "room_list", "rooms": [{"name", "playerCount", "connected",
+##     "phase"}]}`. Pull-only: nothing streams the list, clients re-ask.
 ##
 ## Transport reality: the JSON bridge (server/src/json-bridge.ts) is live at
 ## ws://localhost:2568 — outside the Zod ClientMessage union by design. It
@@ -38,6 +42,8 @@ signal error(code: String, message: String)
 ## Emitted on a game_event 'rematch' whose actorId is the opponent's — our
 ## own vote is already reflected by the Rematch button's waiting state.
 signal rematch_offered(actor_id: String)
+## Carries the rooms array of a room_list reply (see send_list_rooms).
+signal room_listed(rooms: Array)
 
 const RawWsClientScript = preload("res://scripts/raw-ws-client.gd")
 
@@ -60,6 +66,10 @@ var _auto_retried: bool = false
 ## right after, and the resulting disconnect must not clobber that
 ## distinct "seat gone" message with a generic drop notice.
 var _room_full_notified: bool = false
+## True while the socket was dialed by browse_rooms (a directory pull, no
+## seat) — _on_ws_connected sends list_rooms instead of join_room. Cleared
+## by connect_to_server, so a later Connect on the browsing socket joins.
+var _browse_only: bool = false
 
 
 func _ready() -> void:
@@ -80,12 +90,47 @@ func connect_to_server(url: String, name_hint: String = "", room_hint: String = 
 	_joined = false
 	_auto_retried = false
 	_room_full_notified = false
+	_browse_only = false
+	if ws.peer.get_ready_state() == WebSocketPeer.STATE_OPEN:
+		## Socket already up (a directory browse is live) — 'connected' will
+		## not fire again, so join on it directly.
+		_send_join()
+		return
+	var err: int = ws.connect_to(url)
+	if err != OK:
+		emit_signal("error", "ERR_CONNECT", "Failed to start connection to %s" % url)
+
+
+## Dial (or reuse) the endpoint purely to fetch the room directory — no
+## seat is taken. On a live socket this just re-asks; a joined socket keeps
+## its seat and still gets an answer (the bridge treats list_rooms as
+## lobby-level either way), so _browse_only is left untouched then.
+func browse_rooms(url: String) -> void:
+	endpoint = url
+	var state: int = ws.peer.get_ready_state()
+	if state == WebSocketPeer.STATE_OPEN:
+		if not _joined:
+			_browse_only = true
+		send_list_rooms()
+		return
+	## A CONNECTING peer already has a purpose — a Connect join-dial or an
+	## earlier browse — so a Refresh mid-dial leaves _browse_only alone.
+	if state == WebSocketPeer.STATE_CONNECTING:
+		return
+	_browse_only = true
 	var err: int = ws.connect_to(url)
 	if err != OK:
 		emit_signal("error", "ERR_CONNECT", "Failed to start connection to %s" % url)
 
 
 func _on_ws_connected() -> void:
+	if _browse_only:
+		send_list_rooms()
+		return
+	_send_join()
+
+
+func _send_join() -> void:
 	var join_msg: Dictionary = {"type": "join_room", "room": room_name}
 	if display_name != "":
 		join_msg["displayName"] = display_name
@@ -174,6 +219,8 @@ func _on_ws_message(data: Dictionary) -> void:
 			## informational; snapshots carry everything else.
 			if String(data.get("event", "")) == "rematch" and String(data.get("actorId", "")) != GameModel.local_session_id:
 				emit_signal("rematch_offered", String(data.get("actorId", "")))
+		"room_list":
+			emit_signal("room_listed", data.get("rooms", []))
 		"error":
 			var code: String = String(data.get("code", "UNKNOWN"))
 			var message: String = String(data.get("message", ""))
@@ -204,6 +251,13 @@ func send_intent(kind: String, payload: Dictionary = {}) -> void:
 	var msg: Dictionary = payload.duplicate()
 	msg["type"] = kind
 	ws.send_json(msg)
+
+
+## list_rooms is lobby-level — the bridge answers any connected socket,
+## seated or not — so it bypasses send_intent's _joined gate by design.
+## RawWsClient.send_json itself no-ops when the peer isn't open.
+func send_list_rooms() -> void:
+	ws.send_json({"type": "list_rooms"})
 
 
 func is_connected_to_room() -> bool:
