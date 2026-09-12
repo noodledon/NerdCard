@@ -255,6 +255,8 @@ FORCE EVALUATION FLOW
 
 ## 11. Win Conditions
 
+*(NerdiClash — the default mode. Which of these paths are live is mode-dependent; see §21.)*
+
 A player wins by achieving ANY ONE of:
 
 | # | Condition | How It Triggers |
@@ -503,6 +505,48 @@ A "Math Engine Capability Matrix" document is part of the plan deliverables — 
 | **Composition** | Substituting one function into another's variable; cross-domain only, depth ≤2 |
 | **DOMINATE_EPSILON** | Constant `1e-9` used in force-eval 2× comparison to avoid floating-point edge cases |
 | **hp10** | HP field on schema; stored as integer ×10 (e.g., `hp10 = 300` means 30 HP) |
+
+---
+
+## 21. Game Modes
+
+Three modes ship on one schema, one FSM, and the frozen 30-card catalog — a
+mode is a **rules profile** (`server/src/logic/modes.ts`), not a variant
+game. The mode is chosen at join (`join_room.mode`) and is fixed for the
+room's life: a join naming a live room with a different mode is rejected
+`MODE_MISMATCH`, an invalid mode is `INVALID_PAYLOAD`, and a seat reclaim
+ignores the field entirely. The room's mode echoes in `joined.mode`, at the
+snapshot root (`state.mode`), and in `list_rooms` rows; a rematch keeps it.
+
+| | NerdiClash (v1) | Variable Isolation | Classic Clash |
+|---|---|---|---|
+| Win paths | all four (§11) | **isolation only** | hp0, domination, board-wipe — isolation off |
+| Construction | any valid expression | **≥2 distinct variables** | any valid expression |
+| `derivative` / `limit` | own boards only | may strike `opp_board` — counts as the turn's aggressive action; `variable` picks the surviving variable | own boards only |
+| Destroyed boards | permanent | rebuildable via `build_function` | permanent |
+| Showdown card | domination gamble | **rejected** (`INVALID_TARGET` — "no effect in Variable Isolation") | normal |
+| §8.5 auto-eval | standard showdown | **soft_wipe** — every active board evaluates at vvc=1, then `expression=''`; boards stay active, no HP movement | standard |
+| Isolation kill predicate | main board exactly 1 var | **≤1 var** — a constant-only board counts as isolated | never — timers never start |
+
+**Variable Isolation.** "Win only by isolating opponent's variables." HP
+still moves (eval grants it, attacks drain it) but hp0 is not a loss. The
+siege: strike EVERY enemy active board down to ≤1 variable, which arms the
+3-game-turn countdown (`variable_isolation_timers`); hold the net to the
+kill. Derivative/limit are the only catalog cards that reduce a board's
+distinct-variable count (`d/dx (x^2+y) = 2*x`), so the mode overlays
+`opp_board` scope onto them — the catalog file itself is untouched. Defender
+escapes (all v1 mechanics): Term Surge adds a variable, Evaluate wipes the
+board unparseable, Second Foundation adds a board the attacker must also
+isolate, or a `build_function` rebuild.
+
+**Classic Clash.** "Pure HP attack mode" — v1 with isolation removed.
+`variable_isolation_timers` stays empty forever; a 1-var board is merely
+simple, not fatal. Domination and board-wipe stay enabled because disabling
+them would dead-card Showdown and create zombie states (§4.1 of
+`docs/game-modes.md`).
+
+Full rationale, open-question dispositions (OQ-1…15), and the locked-constraint
+audit live in `docs/game-modes.md`.
 
 ---
 
