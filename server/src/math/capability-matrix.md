@@ -8,7 +8,7 @@
 | derivative | math.js | GREEN | `math.derivative(node, var)` |
 | integrate | mathjs (polynomials) + hybrid (SymPy when USE_SYMPY=true) | YELLOW | mathjs fast-path integrates polynomials in the variable (incl. symbolic coefficients / constant denominators); non-polynomial input returns the stub and SymPy covers it when enabled |
 | limit | mathjs (polynomials) + hybrid (SymPy when USE_SYMPY=true) | YELLOW | mathjs fast-path evaluates polynomial limits by substitution at a finite approach point; non-polynomial or non-finite approach returns the stub and SymPy covers it when enabled |
-| continuityCheck | hybrid (SymPy when USE_SYMPY=true) | YELLOW | SymPy microservice when USE_SYMPY=true; mathjs stub returns `supported: false` otherwise |
+| continuityCheck | mathjs (pinned polynomial answer) + hybrid (SymPy when USE_SYMPY=true) | YELLOW | mathjs answers `true` iff the expression is a polynomial in the variable (always continuous over ℝ); other input returns a not-decidable `supported: false` stub — real continuity analysis stays SymPy-only |
 | simplify | math.js | GREEN | `math.simplify(node)` |
 | rationalize | math.js | GREEN | `math.rationalize(node)` |
 | symbolicEqual | math.js | GREEN | `math.symbolicEqual(nodeA, nodeB)` |
@@ -21,8 +21,8 @@
 | expm | math.js | GREEN | `math.expm(matrix)` via Padé approximant |
 | sqrtm | math.js | GREEN | `math.sqrtm(matrix)` |
 | lusolve | math.js | GREEN | `math.lusolve(A, b)` |
-| rref | hybrid (SymPy when USE_SYMPY=true) | YELLOW | SymPy microservice when USE_SYMPY=true; mathjs stub returns `supported: false` otherwise |
-| rank | hybrid (SymPy when USE_SYMPY=true) | YELLOW | SymPy microservice when USE_SYMPY=true; mathjs stub returns `supported: false` otherwise |
+| rref | math.js + hybrid (SymPy when USE_SYMPY=true) | GREEN | Exact Fraction Gauss–Jordan elimination (`math/rref.ts`); accepts `matrix(..)` and `[[..],[..]]` literals; serialized `matrix(..)` keeps fractions exact |
+| rank | math.js + hybrid (SymPy when USE_SYMPY=true) | GREEN | Non-zero row count of the mathjs rref — exact for exact input |
 | gcd | math.js | GREEN | `math.gcd(a, b)` |
 | lcm | math.js | GREEN | `math.lcm(a, b)` |
 | mod | math.js | GREEN | `math.mod(a, b)` — positive remainder |

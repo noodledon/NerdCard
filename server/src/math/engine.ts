@@ -79,7 +79,7 @@ export interface MathEngine {
     approach: number | string,
   ): EngineResult | Promise<EngineResult>;
 
-  /** Continuity check at a point — SymPy-backed when USE_SYMPY=true, stub otherwise. */
+  /** Continuity check at a point — mathjs answers "continuous" iff the expression is a polynomial in the variable; other input is a not-decidable stub. SymPy-backed when USE_SYMPY=true. */
   continuityCheck(
     expr: string,
     variable: string,
@@ -124,10 +124,10 @@ export interface MathEngine {
   /** Solve linear system Ax = b via LU. */
   lusolve(matrix: string, b: string): string;
 
-  /** Reduced Row Echelon Form — SymPy-backed when USE_SYMPY=true, stub otherwise. */
+  /** Reduced Row Echelon Form — exact Fraction Gaussian elimination on mathjs; SymPy-backed when USE_SYMPY=true. */
   rref(matrix: string): EngineResult | Promise<EngineResult>;
 
-  /** Matrix rank — SymPy-backed when USE_SYMPY=true, stub otherwise. */
+  /** Matrix rank — non-zero row count of the rref on mathjs; SymPy-backed when USE_SYMPY=true. */
   rank(matrix: string): EngineResult | Promise<EngineResult>;
 
   // ── Number Theory ──────────────────────────────────────────────────

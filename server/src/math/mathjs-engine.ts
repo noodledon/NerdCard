@@ -7,11 +7,15 @@ import {
   substituteConstant,
 } from './polynomial.js';
 import {
+  parseMatrixToFractions,
+  rrefFractions,
+  rankFractions,
+  matrixFractionsToString,
+} from './rref.js';
+import {
   INTEGRATE_STUB,
   LIMIT_STUB,
   CONTINUITY_STUB,
-  RREF_STUB,
-  RANK_STUB,
 } from './stubs.js';
 
 type InternalNode = { _tag: 'EngineNode'; _node: math.MathNode | math.Complex };
@@ -162,12 +166,23 @@ export const mathjsEngine = {
     };
   },
 
+  // Pinned v1 answer: a polynomial is continuous at every point of ℝ —
+  // "continuous" iff `expr` is a polynomial in `variable`. Anything else
+  // (denominator zeros, domain analysis) is honestly not decidable here and
+  // stays SymPy-only via the hybrid engine.
   continuityCheck(
-    _expr: string,
-    _variable: string,
+    expr: string,
+    variable: string,
     _point: number,
   ): EngineResult {
-    return CONTINUITY_STUB;
+    let node: math.MathNode;
+    try {
+      node = math.parse(expr);
+    } catch {
+      return CONTINUITY_STUB;
+    }
+    if (!isPolynomialIn(node, variable)) return CONTINUITY_STUB;
+    return { ok: true, supported: true, value: 'true' };
   },
 
   simplify(expr: string): string {
@@ -326,12 +341,32 @@ export const mathjsEngine = {
     return matrixToString(result as math.Matrix);
   },
 
-  rref(_matrixStr: string): EngineResult {
-    return RREF_STUB;
+  rref(matrixStr: string): EngineResult {
+    const rows = parseMatrixToFractions(matrixStr);
+    if (!rows) {
+      return {
+        ok: false,
+        supported: false,
+        reason: 'rref expects a non-empty numeric 2-D matrix literal',
+      };
+    }
+    return {
+      ok: true,
+      supported: true,
+      value: matrixFractionsToString(rrefFractions(rows)),
+    };
   },
 
-  rank(_matrixStr: string): EngineResult {
-    return RANK_STUB;
+  rank(matrixStr: string): EngineResult {
+    const rows = parseMatrixToFractions(matrixStr);
+    if (!rows) {
+      return {
+        ok: false,
+        supported: false,
+        reason: 'rank expects a non-empty numeric 2-D matrix literal',
+      };
+    }
+    return { ok: true, supported: true, value: String(rankFractions(rows)) };
   },
 
   gcd(a: number, b: number): number {

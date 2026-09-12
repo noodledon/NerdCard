@@ -15,17 +15,6 @@ export const LIMIT_STUB: EngineResult = {
 export const CONTINUITY_STUB: EngineResult = {
   ok: false,
   supported: false,
-  reason: 'Not implemented in v1 — SymPy microservice arrives in Wave 3',
-};
-
-export const RREF_STUB: EngineResult = {
-  ok: false,
-  supported: false,
-  reason: 'Not implemented in v1 — SymPy microservice arrives in Wave 3',
-};
-
-export const RANK_STUB: EngineResult = {
-  ok: false,
-  supported: false,
-  reason: 'Not implemented in v1 — SymPy microservice arrives in Wave 3',
+  reason:
+    'Not implemented in v1 — continuity is not decidable for non-polynomial input on the mathjs engine; SymPy service covers it',
 };

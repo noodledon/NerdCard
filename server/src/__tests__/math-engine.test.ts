@@ -62,17 +62,61 @@ describe('mathjsEngine', () => {
     });
   });
 
-  describe('remaining stubs stay honest', () => {
-    // Wave-9 T8: integrate/limit got a polynomial fast-path (w9-T7); the ops
-    // below remain math.js stubs — no in-catalog card reaches them without
-    // SymPy (the LA commands never call rref/rank/continuityCheck). The live
-    // SymPy expectations for the same ops sit in math/integration.test.ts.
-    it.each([
-      ['continuityCheck', () => mathjsEngine.continuityCheck('x^2', 'x', 0)],
-      ['rref', () => mathjsEngine.rref('matrix([1,2],[3,4])')],
-      ['rank', () => mathjsEngine.rank('matrix([1,2],[3,4])')],
-    ] as Array<[string, () => unknown]>)('%s returns the unsupported stub envelope', async (_name, call) => {
-      const result = (await call()) as { ok: boolean; supported: boolean; reason?: string };
+  describe('dormant ops (wave-11 T3)', () => {
+    // rref/rank run exact Fraction elimination on the mathjs engine; no
+    // in-catalog card reaches them (the LA commands use det/lup/eigs/lusolve).
+    // The live SymPy expectations for the same ops sit in
+    // math/integration.test.ts.
+    it('rref reduces an invertible matrix to the identity', () => {
+      const result = mathjsEngine.rref('matrix([1,2],[3,4])');
+      expect(result).toMatchObject({
+        ok: true,
+        supported: true,
+        value: 'matrix([1,0],[0,1])',
+      });
+    });
+
+    it('rref accepts the nested-array literal form', () => {
+      const result = mathjsEngine.rref('[[1,2],[2,4]]');
+      expect(result).toMatchObject({
+        ok: true,
+        supported: true,
+        value: 'matrix([1,2],[0,0])',
+      });
+    });
+
+    it('rref keeps non-integer entries exact as fractions', () => {
+      const result = mathjsEngine.rref('matrix([2,1],[4,2])');
+      expect(result.ok).toBe(true);
+      expect(result.value).toBe('matrix([1,1/2],[0,0])');
+    });
+
+    it('rref rejects non-numeric input honestly', () => {
+      const result = mathjsEngine.rref('matrix([x,2],[3,4])');
+      expect(result.ok).toBe(false);
+      expect(result.supported).toBe(false);
+    });
+
+    it('rank counts non-zero rref rows', () => {
+      expect(mathjsEngine.rank('matrix([1,2],[2,4])')).toMatchObject({
+        ok: true,
+        supported: true,
+        value: '1',
+      });
+      expect(mathjsEngine.rank('matrix([1,2],[3,4])')).toMatchObject({
+        ok: true,
+        supported: true,
+        value: '2',
+      });
+    });
+
+    it('continuityCheck answers continuous for polynomials', () => {
+      const result = mathjsEngine.continuityCheck('x^2', 'x', 0);
+      expect(result).toMatchObject({ ok: true, supported: true, value: 'true' });
+    });
+
+    it('continuityCheck returns the pinned not-decidable stub otherwise', () => {
+      const result = mathjsEngine.continuityCheck('1/x', 'x', 0);
       expect(result.ok).toBe(false);
       expect(result.supported).toBe(false);
       expect(result.reason).toMatch(/Not implemented in v1/);
