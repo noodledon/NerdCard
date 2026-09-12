@@ -3,6 +3,7 @@ import http from 'http';
 import { WebSocket } from 'ws';
 import { JsonBridgeServer } from '../json-bridge.js';
 import { ErrorCode } from '../shared/ErrorCode.js';
+import { Phase } from '../logic/fsm.js';
 import { mathEngine } from '../math/index.js';
 import type { EngineResult } from '../math/index.js';
 import type { NerdiClashGame } from '../rooms/NerdiClashGame.js';
@@ -764,6 +765,104 @@ describe('JsonBridgeServer', () => {
       });
       expect(msg.type).toBe('joined');
       expect(msg.sessionId).toBe(ja1.sessionId);
+    });
+  });
+
+  /**
+   * Wave-11 T2: `rematch` is a transport-level room intent — both seated
+   * players must vote while the game is over; the second vote swaps a fresh
+   * NerdiClashGame in with the same sessionIds/roles/tokens. Tests force
+   * gameOver by writing state directly — the vote protocol is the surface
+   * under test, not the win engine.
+   */
+  describe('rematch', () => {
+    /** Joins two players into the default room and drops the game to gameOver. */
+    async function joinFinishedGame(): Promise<{
+      c1: BridgeClient; c2: BridgeClient; sid1: string; sid2: string; tok2: string;
+    }> {
+      const { c1, c2, sid1, sid2, tok2 } = await joinTwoPlayers();
+      await c1.waitFor(snapshotPhase('construction'), 3000, 'construction snapshot');
+      const game = (bridge as unknown as { game?: NerdiClashGame }).game;
+      if (!game) throw new Error('default-room game missing after two joins');
+      game.state.winner = sid1;
+      game.state.phase = Phase.gameOver;
+      return { c1, c2, sid1, sid2, tok2 };
+    }
+
+    it('rejects rematch before gameOver with NOT_PHASE_NOT_DRAW', async () => {
+      const { c1 } = await joinTwoPlayers();
+      await c1.waitFor(snapshotPhase('construction'), 3000, 'construction snapshot');
+
+      c1.send({ type: 'rematch' });
+      const resp = await c1.waitFor(isResponse, 3000, 'rematch response');
+      expect(resp.type).toBe('error');
+      expect(resp.code).toBe(ErrorCode.NOT_PHASE_NOT_DRAW);
+    });
+
+    it('does not reset on a single vote — both players must opt in', async () => {
+      const { c1, c2, sid1 } = await joinFinishedGame();
+
+      c1.send({ type: 'rematch' });
+      const resp = await c1.waitFor(isResponse, 3000, 'rematch response');
+      expect(resp).toMatchObject({ type: 'ack', intent: 'rematch' });
+
+      // The opponent sees the vote as a game_event — the "wants a rematch" UI.
+      const ev = await c2.waitFor(
+        (msg) => msg.type === 'game_event' && msg.event === 'rematch',
+        3000,
+        'rematch game_event',
+      );
+      expect(ev.actorId).toBe(sid1);
+
+      // One vote changes nothing: still gameOver.
+      const snap = await c1.waitForNext(isSnapshot, 3000, 'state_snapshot');
+      expect(snapshotState(snap).phase).toBe('gameOver');
+    });
+
+    it('resets to a fresh construction game on the second vote, same seats', async () => {
+      const { c1, c2, sid1, sid2 } = await joinFinishedGame();
+
+      c1.send({ type: 'rematch' });
+      await c1.waitFor(isResponse, 3000, 'rematch response');
+      c2.send({ type: 'rematch' });
+      const resp2 = await c2.waitFor(isResponse, 3000, 'rematch response');
+      expect(resp2).toMatchObject({ type: 'ack', intent: 'rematch' });
+
+      const snap = await c1.waitFor(snapshotPhase('construction'), 3000, 'rematch construction');
+      const players = snapshotState(snap).players ?? {};
+      expect(Object.keys(players)).toEqual([sid1, sid2]);
+      // Fresh game evidence: construction boards exist again for both seats.
+      expect(players[sid1]?.boards?.length).toBeGreaterThan(0);
+      expect(players[sid2]?.boards?.length).toBeGreaterThan(0);
+
+      // Votes cleared with the swap — a rematch in the new game is a phase error.
+      c1.send({ type: 'rematch' });
+      const resp3 = await c1.waitForNext(isResponse, 3000, 'post-reset rematch');
+      expect(resp3.type).toBe('error');
+      expect(resp3.code).toBe(ErrorCode.NOT_PHASE_NOT_DRAW);
+    });
+
+    it('waits for a disconnected opponent — their vote after rejoin completes it', async () => {
+      const { c1, c2, sid2, tok2 } = await joinFinishedGame();
+      await c2.close();
+
+      c1.send({ type: 'rematch' });
+      const resp = await c1.waitFor(isResponse, 3000, 'rematch response');
+      expect(resp).toMatchObject({ type: 'ack', intent: 'rematch' });
+
+      const snap = await c1.waitForNext(isSnapshot, 3000, 'state_snapshot');
+      expect(snapshotState(snap).phase).toBe('gameOver');
+
+      const { client: rejoined, msg } = await joinRoomWithRetry({ sessionId: sid2, reconnectToken: tok2 });
+      expect(msg.type).toBe('joined');
+      expect(msg.sessionId).toBe(sid2);
+
+      rejoined.send({ type: 'rematch' });
+      const resp2 = await rejoined.waitFor(isResponse, 3000, 'rematch response');
+      expect(resp2).toMatchObject({ type: 'ack', intent: 'rematch' });
+
+      const reset = await c1.waitFor(snapshotPhase('construction'), 3000, 'rematch construction');
+      expect(Object.keys(snapshotState(reset).players ?? {})).toHaveLength(2);
     });
   });
 });

@@ -35,6 +35,9 @@ extends Node
 signal connected(role: String)
 signal state_changed(snapshot: Dictionary)
 signal error(code: String, message: String)
+## Emitted on a game_event 'rematch' whose actorId is the opponent's — our
+## own vote is already reflected by the Rematch button's waiting state.
+signal rematch_offered(actor_id: String)
 
 const RawWsClientScript = preload("res://scripts/raw-ws-client.gd")
 
@@ -164,6 +167,13 @@ func _on_ws_message(data: Dictionary) -> void:
 				GameModel.state["winner"] = data.get("winnerId")
 				GameModel.state["winReason"] = data.get("winReason")
 				emit_signal("state_changed", GameModel.state)
+		"game_event":
+			## Rematch votes ride the event stream only — snapshots never
+			## carry them (json-bridge voteRematch), so the opponent's vote
+			## is surfaced here as a notice. Other game_events stay
+			## informational; snapshots carry everything else.
+			if String(data.get("event", "")) == "rematch" and String(data.get("actorId", "")) != GameModel.local_session_id:
+				emit_signal("rematch_offered", String(data.get("actorId", "")))
 		"error":
 			var code: String = String(data.get("code", "UNKNOWN"))
 			var message: String = String(data.get("message", ""))

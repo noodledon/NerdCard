@@ -29,6 +29,7 @@ extends Node2D
 @onready var game_over_overlay: ColorRect = $CanvasLayer/GameOverOverlay
 @onready var game_over_result: Label = $CanvasLayer/GameOverOverlay/GameOverCenter/GameOverBox/GameOverVBox/GameOverResult
 @onready var game_over_detail: Label = $CanvasLayer/GameOverOverlay/GameOverCenter/GameOverBox/GameOverVBox/GameOverDetail
+@onready var game_over_vbox: VBoxContainer = $CanvasLayer/GameOverOverlay/GameOverCenter/GameOverBox/GameOverVBox
 
 @onready var opponent_panel: PlayerPanel = $CanvasLayer/MarginContainer/ScrollContainer/VBoxContainer/OpponentPanel
 @onready var local_panel: PlayerPanel = $CanvasLayer/MarginContainer/ScrollContainer/VBoxContainer/LocalPanel
@@ -133,6 +134,15 @@ var _defense_pass_button: Button
 ## each name is an isolated 2P game, blank falls back to "nerdiclash".
 var _room_line_edit: LineEdit
 
+## Rematch button, code-built into the scene's GameOverVBox in _ready (same
+## convention as the defense banner — game.tscn untouched). Rematch votes
+## ride the game_event stream, not snapshots, so the opponent's vote is
+## tracked as a flag set by ConnectionManager.rematch_offered; both flags
+## reset when the phase leaves gameOver (a completed vote resets the room).
+var _rematch_button: Button
+var _rematch_voted: bool = false
+var _opponent_wants_rematch: bool = false
+
 ## boardIds whose Build button was pressed and is awaiting a server state
 ## update. Cleared on every state_changed (send_intent is fire-and-forget;
 ## the next snapshot is the acknowledgement). Kept so a rapid double-render
@@ -144,8 +154,10 @@ func _ready() -> void:
 	ConnectionManager.connect("connected", Callable(self, "_on_connected"))
 	ConnectionManager.connect("state_changed", Callable(self, "_on_state_changed"))
 	ConnectionManager.connect("error", Callable(self, "_on_connection_error"))
+	ConnectionManager.connect("rematch_offered", Callable(self, "_on_rematch_offered"))
 	_build_defense_banner()
 	_build_room_field()
+	_build_rematch_button()
 	_render_from_model()
 
 
@@ -539,12 +551,42 @@ func _on_defense_pass_pressed() -> void:
 	ConnectionManager.send_intent("end_turn", {})
 
 
+## Appends the Rematch button under the result/detail labels. Visible only
+## while the overlay is up (its parent is hidden with it).
+func _build_rematch_button() -> void:
+	_rematch_button = Button.new()
+	_rematch_button.text = "Rematch"
+	_rematch_button.size_flags_horizontal = Control.SIZE_SHRINK_CENTER
+	_style_button_primary(_rematch_button)
+	_rematch_button.pressed.connect(_on_rematch_pressed)
+	game_over_vbox.add_child(_rematch_button)
+
+
+## Fire-and-forget like Build: the server acks the vote and broadcasts a
+## 'rematch' game_event; a second vote from the opponent flips the room to
+## a fresh construction game on the same seats.
+func _on_rematch_pressed() -> void:
+	_rematch_voted = true
+	ConnectionManager.send_intent("rematch")
+	_render_game_over(String(GameModel.state.get("phase", "")), GameModel.state)
+
+
+## The opponent's rematch vote — a persistent line on the overlay plus a
+## transient hint, since the event can land between snapshots.
+func _on_rematch_offered(_actor_id: String) -> void:
+	_opponent_wants_rematch = true
+	_show_error("", "Opponent wants a rematch")
+	_render_from_model()
+
+
 ## Full-screen modal shown only in the gameOver phase. Compares the winning
 ## sessionId against this client's own to pick the outcome text.
 func _render_game_over(phase: String, state: Dictionary) -> void:
 	var is_over: bool = phase == "gameOver"
 	game_over_overlay.visible = is_over
 	if not is_over:
+		_rematch_voted = false
+		_opponent_wants_rematch = false
 		return
 
 	var winner: Variant = state.get("winner", null)
@@ -562,6 +604,10 @@ func _render_game_over(phase: String, state: Dictionary) -> void:
 	var reason: String = String(WIN_REASON_LABELS.get(String(state.get("winReason", "")), ""))
 	if reason != "":
 		game_over_detail.text += "\n%s" % reason
+	if _opponent_wants_rematch:
+		game_over_detail.text += "\nOpponent wants a rematch."
+	_rematch_button.disabled = _rematch_voted
+	_rematch_button.text = "Waiting for opponent…" if _rematch_voted else "Rematch"
 
 
 ## Updates the construction countdown and the defense banner every frame

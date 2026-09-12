@@ -50,6 +50,13 @@ interface GameSlot {
   intentQueue: Promise<void>;
   /** Set while a tick waits on the lane — collapses back-to-back firings. */
   tickQueued: boolean;
+  /**
+   * sessionIds that voted `rematch` on the finished game. Reset only fires
+   * once every seated player has opted in; votes clear on each fresh game
+   * and die with the slot. A vote while the opponent is disconnected just
+   * waits — their seat (and their vote) is theirs if they rejoin.
+   */
+  rematchVotes: Set<string>;
 }
 
 /**
@@ -208,6 +215,19 @@ export class JsonBridgeServer {
         // handleDisconnect performs the seat teardown on the close event.
         ws.close();
         break;
+      case 'rematch': {
+        // Runs on the room's lane so the game swap can't interleave with an
+        // in-flight intent on the old game (those self-reject via the
+        // slot.game guard).
+        const result = await this.runSerialized(slot, (): CommandResult =>
+          this.voteRematch(slot, client.sessionId));
+        if (!result.ok) {
+          this.send(ws, { type: 'error', code: this.errorCodeFor(result.reason), message: result.reason ?? 'rematch failed' });
+        } else {
+          this.send(ws, { type: 'ack', intent: 'rematch' });
+        }
+        break;
+      }
       case 'draw_cards':
       case 'build_function':
       case 'play_card':
@@ -276,6 +296,7 @@ export class JsonBridgeServer {
       reconnectTokens: new Map(),
       intentQueue: Promise.resolve(),
       tickQueued: false,
+      rematchVotes: new Set(),
     };
     this.slots.set(room, slot);
     return slot;
@@ -360,6 +381,51 @@ export class JsonBridgeServer {
       slot.reconnectTokens.clear();
       this.slots.delete(slot.name);
     }
+  }
+
+  /**
+   * One player's rematch vote. Valid only in gameOver; the second vote swaps
+   * in a fresh NerdiClashGame — never reuse the finished object (stale FSM,
+   * queue and timer residue). Seats keep sessionIds, roles and reconnect
+   * tokens: the same slots.clients map keeps streaming, so no socket churn.
+   */
+  private voteRematch(slot: GameSlot, sessionId: string): CommandResult {
+    const game = slot.game;
+    if (!game || game.state.phase !== Phase.gameOver) {
+      return { ok: false, reason: 'rematch only in gameOver phase' };
+    }
+    if (!game.state.players.has(sessionId)) {
+      return { ok: false, reason: 'player not found' };
+    }
+    if (!slot.rematchVotes.has(sessionId)) {
+      slot.rematchVotes.add(sessionId);
+      // Lets each client render "opponent wants a rematch" off the event
+      // stream rather than a snapshot diff.
+      this.broadcastGameEvent(slot, {
+        event: 'rematch',
+        actorId: sessionId,
+        details: { votes: slot.rematchVotes.size, needed: game.state.players.size },
+      });
+    }
+    const allVoted = [...game.state.players.keys()].every((id) => slot.rematchVotes.has(id));
+    if (!allVoted) return { ok: true };
+
+    const seats = [...game.state.players.values()].map((p) => ({
+      sessionId: p.sessionId,
+      displayName: p.displayName,
+    }));
+    const fresh = new NerdiClashGame();
+    fresh.setEventListener((ev) => this.broadcastGameEvent(slot, ev));
+    slot.game = fresh;
+    slot.rematchVotes.clear();
+    for (const seat of seats) {
+      fresh.addPlayer(seat.sessionId, seat.displayName);
+    }
+    fresh.startGame();
+    // Same immediacy as a filled room on join: push the construction
+    // snapshot now instead of waiting for the next 100ms interval.
+    this.broadcastSnapshots(slot);
+    return { ok: true };
   }
 
   /**
