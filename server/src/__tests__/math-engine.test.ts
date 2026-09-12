@@ -30,17 +30,31 @@ describe('mathjsEngine', () => {
     });
   });
 
-  describe('integrate (stub)', () => {
-    it('returns unsupported stub', () => {
+  describe('integrate (polynomial fast-path)', () => {
+    it('integrates a polynomial term-by-term', () => {
       const result = mathjsEngine.integrate('x^2', 'x');
+      expect(result.ok).toBe(true);
+      expect(result.supported).toBe(true);
+      expect(mathjsEngine.symbolicEqual(String(result.value), 'x^3/3')).toBe(true);
+    });
+
+    it('returns the honest stub for non-polynomial input', () => {
+      const result = mathjsEngine.integrate('sin(x)', 'x');
       expect(result.ok).toBe(false);
       expect(result.supported).toBe(false);
       expect(result.reason).toMatch(/Not implemented in v1/);
     });
   });
 
-  describe('limit (stub)', () => {
-    it('returns unsupported stub', () => {
+  describe('limit (polynomial fast-path)', () => {
+    it('evaluates a polynomial limit by substitution', () => {
+      const result = mathjsEngine.limit('x^2', 'x', 0);
+      expect(result.ok).toBe(true);
+      expect(result.supported).toBe(true);
+      expect(result.value).toBe('0');
+    });
+
+    it('returns unsupported stub for non-polynomial input', () => {
       const result = mathjsEngine.limit('1/x', 'x', 0);
       expect(result.ok).toBe(false);
       expect(result.supported).toBe(false);

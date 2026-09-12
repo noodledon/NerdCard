@@ -10,6 +10,7 @@
 
 import * as math from 'mathjs';
 import { serialize, type MathNode } from './expressions.js';
+import { degreeOf, hasTranscendentalOrConstant } from './polynomial.js';
 import type { BaseDomain } from '../shared/types.js';
 
 export interface ValidationResult {
@@ -18,68 +19,6 @@ export interface ValidationResult {
 }
 
 const OK: ValidationResult = { ok: true };
-
-/** Extract a numeric constant value from a ConstantNode (handles unary minus). */
-function constValue(node: MathNode): number | null {
-  if (node.type === 'ConstantNode') {
-    const raw = (node as unknown as { value: unknown }).value;
-    if (typeof raw === 'number') return raw;
-    const asNum = Number(String(raw));
-    return Number.isNaN(asNum) ? null : asNum;
-  }
-  if (node.type === 'OperatorNode' && (node as unknown as { op: string }).op === 'unaryMinus') {
-    const inner = constValue((node as unknown as { args: MathNode[] }).args[0]);
-    return inner === null ? null : -inner;
-  }
-  return null;
-}
-
-/** Polynomial degree of `node` in variable `v` (symbolic walk). */
-function degreeOf(node: MathNode, v: string): number {
-  if (node.type === 'SymbolNode') {
-    return (node as unknown as { name: string }).name === v ? 1 : 0;
-  }
-  if (node.type === 'ConstantNode') return 0;
-  if (node.type === 'ParenthesisNode') {
-    return degreeOf((node as unknown as { content: MathNode }).content, v);
-  }
-  if (node.type === 'OperatorNode') {
-    const op = (node as unknown as { op: string }).op;
-    const args = (node as unknown as { args: MathNode[] }).args;
-    if (op === '+' || op === '-') return Math.max(...args.map((a) => degreeOf(a, v)));
-    if (op === '*') return args.reduce((s, a) => s + degreeOf(a, v), 0);
-    if (op === '^') {
-      const baseDeg = degreeOf(args[0], v);
-      if (baseDeg === 0) return 0; // variable not in base → degree 0
-      const exp = constValue(args[1]);
-      return exp === null ? baseDeg : baseDeg * exp;
-    }
-    return 0;
-  }
-  return 0; // functions, etc. → not polynomial in v
-}
-
-const TRANSCENDENTAL_FUNCS = new Set([
-  'sin', 'cos', 'tan', 'cot', 'sec', 'csc', 'asin', 'acos', 'atan',
-  'sinh', 'cosh', 'exp', 'log', 'log2', 'log10', 'ln', 'sqrt', 'abs',
-]);
-
-/** True if the tree contains a transcendental function or a reserved constant. */
-function hasTranscendentalOrConstant(node: MathNode): boolean {
-  let bad = false;
-  node.traverse((n: MathNode) => {
-    if (bad) return;
-    if (n.type === 'FunctionNode') {
-      const fn = String((n as unknown as { fn: unknown }).fn);
-      if (TRANSCENDENTAL_FUNCS.has(fn)) bad = true;
-    }
-    if (n.type === 'SymbolNode') {
-      const name = (n as unknown as { name: string }).name;
-      if (['pi', 'e', 'phi', 'i', 'INF', 'NaN'].includes(name)) bad = true;
-    }
-  });
-  return bad;
-}
 
 // ─── Rational ────────────────────────────────────────────────────────────────
 

@@ -1,5 +1,11 @@
 import * as math from 'mathjs';
 import type { MathEngine, EngineNode, EngineResult } from './engine.js';
+import { serialize, type MathNode } from './expressions.js';
+import {
+  isPolynomialIn,
+  polynomialAntiderivative,
+  substituteConstant,
+} from './polynomial.js';
 import {
   INTEGRATE_STUB,
   LIMIT_STUB,
@@ -57,6 +63,34 @@ function eigsResult(values: number[], partial: boolean): EngineResult {
   };
 }
 
+/** Canonical string for a computed node — simplified when possible. */
+function serializeSimplified(node: MathNode): string {
+  try {
+    return serialize(math.simplify(node));
+  } catch {
+    return serialize(node);
+  }
+}
+
+/**
+ * Resolve a limit's approach point to a finite number. Numeric strings and
+ * constant expressions ('1/2', 'pi') are evaluated; anything non-numeric or
+ * non-finite ('Infinity', 'x') returns null so the caller can stay honest.
+ */
+function resolveFiniteApproach(approach: number | string): number | null {
+  if (typeof approach === 'number') {
+    return Number.isFinite(approach) ? approach : null;
+  }
+  const trimmed = approach.trim();
+  if (!trimmed) return null;
+  try {
+    const value = math.evaluate(trimmed) as unknown;
+    return typeof value === 'number' && Number.isFinite(value) ? value : null;
+  } catch {
+    return null;
+  }
+}
+
 export const mathjsEngine = {
   parse(expr: string): EngineNode {
     return wrap(math.parse(expr));
@@ -103,16 +137,29 @@ export const mathjsEngine = {
     return result.toString();
   },
 
-  integrate(_expr: string, _variable: string): EngineResult {
-    return INTEGRATE_STUB;
+  integrate(expr: string, variable: string): EngineResult {
+    const node = math.parse(expr);
+    if (!isPolynomialIn(node, variable)) return INTEGRATE_STUB;
+    const anti = polynomialAntiderivative(node, variable);
+    if (!anti) return INTEGRATE_STUB;
+    return { ok: true, supported: true, value: serializeSimplified(anti) };
   },
 
   limit(
-    _expr: string,
-    _variable: string,
-    _approach: number | string,
+    expr: string,
+    variable: string,
+    approach: number | string,
   ): EngineResult {
-    return LIMIT_STUB;
+    const node = math.parse(expr);
+    if (!isPolynomialIn(node, variable)) return LIMIT_STUB;
+    const point = resolveFiniteApproach(approach);
+    if (point === null) return LIMIT_STUB;
+    // A polynomial is continuous — its limit is plain substitution.
+    return {
+      ok: true,
+      supported: true,
+      value: serializeSimplified(substituteConstant(node, variable, point)),
+    };
   },
 
   continuityCheck(
