@@ -143,6 +143,17 @@ func _on_ws_message(data: Dictionary) -> void:
 		"state_snapshot":
 			GameModel.state = data.get("state", {})
 			emit_signal("state_changed", GameModel.state)
+		"game_over":
+			## Dedicated GameOverSchema frame (wave-8 T5): lands ahead of the
+			## next 100ms snapshot, so patch the model and re-render now.
+			## Guarded on phase — if a snapshot already showed gameOver the
+			## overlay is up and re-emitting state_changed would be a no-op
+			## anyway (game.gd _render_game_over only flips visibility).
+			if String(GameModel.state.get("phase", "")) != "gameOver":
+				GameModel.state["phase"] = "gameOver"
+				GameModel.state["winner"] = data.get("winnerId")
+				GameModel.state["winReason"] = data.get("winReason")
+				emit_signal("state_changed", GameModel.state)
 		"error":
 			var code: String = String(data.get("code", "UNKNOWN"))
 			var message: String = String(data.get("message", ""))

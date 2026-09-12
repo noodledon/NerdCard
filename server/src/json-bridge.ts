@@ -194,8 +194,19 @@ export class JsonBridgeServer {
       turnId: this.game.state.turnIndex,
       details: ev.details,
     };
+    // A declared winner also rides out as the dedicated GameOverSchema frame
+    // so clients don't have to snapshot-diff to detect game end. The raw
+    // game_event still flows — the event stream stays complete.
+    const gameOver = ev.event === 'game_over'
+      ? {
+          type: 'game_over',
+          winnerId: typeof ev.details.winner === 'string' ? ev.details.winner : null,
+          winReason: typeof ev.details.winReason === 'string' ? ev.details.winReason : null,
+        }
+      : undefined;
     for (const client of this.clients.values()) {
       this.send(client.ws, payload);
+      if (gameOver) this.send(client.ws, gameOver);
     }
   }
 

@@ -544,9 +544,24 @@ export class NerdiClashGame {
       variableIsolationTimers: this.state.variable_isolation_timers,
     });
     if (!result.winner) return;
-    this.state.winner = result.winner;
-    this.state.winReason = WIN_REASON_BY_ENGINE[result.reason ?? ''] ?? '';
+    this.declareWinner(result.winner, result.loser, WIN_REASON_BY_ENGINE[result.reason ?? ''] ?? '');
+  }
+
+  /**
+   * Single point where state.winner flips unset→set. Both runCheckWin and
+   * runForceEval funnel here so the 'game_over' game_event fires exactly
+   * once per game; transports translate it into their wire frame.
+   */
+  private declareWinner(winnerId: string, loserId: string | undefined, wireReason: string): void {
+    if (this.state.winner) return;
+    this.state.winner = winnerId;
+    this.state.winReason = wireReason;
     this.phaseController.requestTransition(Phase.gameOver);
+    this.emitGameEvent('game_over', winnerId, {
+      winner: winnerId,
+      loser: loserId ?? '',
+      winReason: wireReason === '' ? null : wireReason,
+    });
   }
 
   /**
@@ -577,9 +592,9 @@ export class NerdiClashGame {
       if (player) player.hp10 = wrapper.hp10;
     }
     if (result.winner) {
-      this.state.winner = result.winner;
-      this.state.winReason = 'force_eval_domination';
-      this.phaseController.requestTransition(Phase.gameOver);
+      const winnerId = result.winner;
+      const loserId = [...this.state.players.keys()].find((id) => id !== winnerId);
+      this.declareWinner(winnerId, loserId, 'force_eval_domination');
     }
     // A failed nomination destroys the initiator's main board — which may also
     // end the game — so always follow up with a win check.
