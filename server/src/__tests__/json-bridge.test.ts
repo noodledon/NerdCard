@@ -609,4 +609,161 @@ describe('JsonBridgeServer', () => {
       spy.mockRestore();
     }
   });
+
+  /**
+   * Wave-11 T1: the bridge multiplexes independent 2P rooms selected by
+   * `join_room.room`. A missing/empty field routes to the 'nerdiclash'
+   * default; names are validated; slots die with their last socket.
+   */
+  describe('multi-room', () => {
+    it('runs two rooms as independent games on one bridge', async () => {
+      const a1 = await connect();
+      const ja1 = await joinRoom(a1, { room: 'alpha' });
+      expect(ja1.type).toBe('joined');
+      expect(ja1.role).toBe('p1');
+
+      const b1 = await connect();
+      const jb1 = await joinRoom(b1, { room: 'beta' });
+      expect(jb1.type).toBe('joined');
+      expect(jb1.role).toBe('p1');
+
+      const a2 = await connect();
+      const ja2 = await joinRoom(a2, { room: 'alpha' });
+      expect(ja2.type).toBe('joined');
+      expect(ja2.role).toBe('p2');
+
+      // Alpha fills and starts; its snapshot only ever knows its own seats.
+      const snapA = await a1.waitFor(snapshotPhase('construction'), 3000, 'alpha construction');
+      const playersA = Object.keys(snapshotState(snapA).players ?? {});
+      expect(playersA).toEqual([String(ja1.sessionId), String(ja2.sessionId)]);
+      expect(playersA).not.toContain(String(jb1.sessionId));
+
+      // Beta's lone joiner still waits — alpha's start did not advance it.
+      const snapB = await b1.waitForNext(isSnapshot, 3000, 'beta snapshot');
+      expect(snapshotState(snapB).phase).toBe('waiting');
+      expect(Object.keys(snapshotState(snapB).players ?? {})).toEqual([String(jb1.sessionId)]);
+
+      const b2 = await connect();
+      const jb2 = await joinRoom(b2, { room: 'beta' });
+      expect(jb2.type).toBe('joined');
+      expect(jb2.role).toBe('p2');
+
+      const snapB2 = await b1.waitFor(snapshotPhase('construction'), 3000, 'beta construction');
+      expect(Object.keys(snapshotState(snapB2).players ?? {})).toEqual([
+        String(jb1.sessionId),
+        String(jb2.sessionId),
+      ]);
+    });
+
+    it('keeps an omitted or empty room field on the nerdiclash default', async () => {
+      const c1 = await connect();
+      c1.send({ type: 'join_room', displayName: 'tester' });
+      const j1 = await c1.waitFor(
+        (msg) => msg.type === 'joined' || msg.type === 'error',
+        3000,
+        'joined|error',
+      );
+      expect(j1.type).toBe('joined');
+      expect(j1.role).toBe('p1');
+
+      const c2 = await connect();
+      const j2 = await joinRoom(c2, { room: '' });
+      expect(j2.type).toBe('joined');
+      // Empty room routed to the same default room — this is its second seat.
+      expect(j2.role).toBe('p2');
+
+      // And an explicit 'nerdiclash' join now finds that default room full.
+      const c3 = await connect();
+      const j3 = await joinRoom(c3);
+      expect(j3.type).toBe('error');
+      expect(j3.code).toBe(ErrorCode.ROOM_FULL);
+    });
+
+    it('rejects an invalid room name with INVALID_PAYLOAD', async () => {
+      const client = await connect();
+      for (const room of ['bad room!', 'x'.repeat(33), 'dot.name']) {
+        const resp = await joinRoom(client, { room });
+        expect(resp.type).toBe('error');
+        expect(resp.code).toBe(ErrorCode.INVALID_PAYLOAD);
+      }
+      // The socket stays usable — a good join on it still lands.
+      const ok = await joinRoom(client, { room: 'fine_room-1' });
+      expect(ok.type).toBe('joined');
+    });
+
+    it('answers SERVER_FULL once ROOM_CAP rooms are live', async () => {
+      for (let i = 0; i < 16; i += 1) {
+        const client = await connect();
+        const joined = await joinRoom(client, { room: `cap-${i}` });
+        expect(joined.type).toBe('joined');
+      }
+
+      const extra = await connect();
+      const resp = await joinRoom(extra, { room: 'cap-16' });
+      expect(resp.type).toBe('error');
+      expect(resp.code).toBe(ErrorCode.SERVER_FULL);
+
+      // The cap only blocks NEW rooms — an existing one still seats players.
+      const seat = await connect();
+      const joined = await joinRoom(seat, { room: 'cap-0' });
+      expect(joined.type).toBe('joined');
+      expect(joined.role).toBe('p2');
+    });
+
+    it('tears down one room without disturbing another', async () => {
+      const a1 = await connect();
+      const a2 = await connect();
+      await joinRoom(a1, { room: 'alpha' });
+      await joinRoom(a2, { room: 'alpha' });
+      await a1.waitFor(snapshotPhase('construction'), 3000, 'alpha construction');
+
+      const b1 = await connect();
+      const jb1 = await joinRoom(b1, { room: 'beta' });
+      expect(jb1.type).toBe('joined');
+
+      await Promise.all([a1.close(), a2.close()]);
+
+      // Room alpha is gone: a fresh alpha join lands in a new lone game.
+      const { client: fresh, msg } = await joinRoomWithRetry({ room: 'alpha' });
+      expect(msg.type).toBe('joined');
+      expect(msg.role).toBe('p1');
+      const snapF = await fresh.waitForNext(isSnapshot, 3000, 'fresh snapshot');
+      expect(Object.keys(snapshotState(snapF).players ?? {})).toHaveLength(1);
+
+      // Room beta's seat and game survived the teardown next door.
+      const snapB = await b1.waitForNext(isSnapshot, 3000, 'beta snapshot');
+      expect(snapshotState(snapB).phase).toBe('waiting');
+      expect(Object.keys(snapshotState(snapB).players ?? {})).toEqual([String(jb1.sessionId)]);
+    });
+
+    it('does not let a reconnect token reclaim a seat in a different room', async () => {
+      const a1 = await connect();
+      const ja1 = await joinRoom(a1, { room: 'alpha' });
+      const a2 = await connect();
+      await joinRoom(a2, { room: 'alpha' });
+      await a1.waitFor(snapshotPhase('construction'), 3000, 'alpha construction');
+      await a1.close();
+
+      // Presenting alpha's sessionId+token to room beta must not move the
+      // seat — tokens are minted per slot — so this is a fresh beta join.
+      const b = await connect();
+      const jb = await joinRoom(b, {
+        room: 'beta',
+        sessionId: ja1.sessionId,
+        reconnectToken: ja1.reconnectToken,
+      });
+      expect(jb.type).toBe('joined');
+      expect(jb.sessionId).not.toBe(ja1.sessionId);
+      expect(jb.role).toBe('p1');
+
+      // The alpha seat is still reclaimable — through room alpha only.
+      const { msg } = await joinRoomWithRetry({
+        room: 'alpha',
+        sessionId: ja1.sessionId,
+        reconnectToken: ja1.reconnectToken,
+      });
+      expect(msg.type).toBe('joined');
+      expect(msg.sessionId).toBe(ja1.sessionId);
+    });
+  });
 });

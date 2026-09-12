@@ -13,6 +13,7 @@
 
 extends Node2D
 
+@onready var connect_row: HBoxContainer = $CanvasLayer/MarginContainer/ScrollContainer/VBoxContainer/ConnectRow
 @onready var ip_line_edit: LineEdit = $CanvasLayer/MarginContainer/ScrollContainer/VBoxContainer/ConnectRow/IpLineEdit
 @onready var connect_button: Button = $CanvasLayer/MarginContainer/ScrollContainer/VBoxContainer/ConnectRow/ConnectButton
 @onready var status_label: Label = $CanvasLayer/MarginContainer/ScrollContainer/VBoxContainer/ConnectRow/StatusLabel
@@ -127,6 +128,11 @@ var _defense_banner: PanelContainer
 var _defense_label: Label
 var _defense_pass_button: Button
 
+## Room-name field on the connect row, code-built in _ready like the defense
+## banner (keeps game.tscn untouched). The bridge routes join_room by it —
+## each name is an isolated 2P game, blank falls back to "nerdiclash".
+var _room_line_edit: LineEdit
+
 ## boardIds whose Build button was pressed and is awaiting a server state
 ## update. Cleared on every state_changed (send_intent is fire-and-forget;
 ## the next snapshot is the acknowledgement). Kept so a rapid double-render
@@ -139,12 +145,25 @@ func _ready() -> void:
 	ConnectionManager.connect("state_changed", Callable(self, "_on_state_changed"))
 	ConnectionManager.connect("error", Callable(self, "_on_connection_error"))
 	_build_defense_banner()
+	_build_room_field()
 	_render_from_model()
+
+
+## Room LineEdit between IpLineEdit and ConnectButton — a second named input
+## on the same row, matching the row's spacing conventions.
+func _build_room_field() -> void:
+	_room_line_edit = LineEdit.new()
+	_room_line_edit.text = ConnectionManager.room_name
+	_room_line_edit.placeholder_text = "room"
+	_room_line_edit.max_length = 32
+	_room_line_edit.custom_minimum_size = Vector2(120, 0)
+	connect_row.add_child(_room_line_edit)
+	connect_row.move_child(_room_line_edit, 1)
 
 
 func _on_connect_button_pressed() -> void:
 	status_label.text = "Connecting..."
-	ConnectionManager.connect_to_server(ip_line_edit.text)
+	ConnectionManager.connect_to_server(ip_line_edit.text, "", _room_line_edit.text)
 
 
 func _on_connected(role: String) -> void:

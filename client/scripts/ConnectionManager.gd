@@ -14,7 +14,8 @@
 ##   Incoming: `{"type": "state_snapshot", "state": {...GameRoomState...}}`
 ##     mirrors ServerMessage's StateSnapshotSchema; `{"type": "error", "code",
 ##     "message", "retryable"}` mirrors ServerErrorSchema.
-##   Join handshake: `{"type": "join_room", "room": "nerdiclash",
+##   Join handshake: `{"type": "join_room", "room": <room_name — each name
+##     is an isolated 2P game; blank falls back to "nerdiclash">,
 ##     "displayName": <optional>, "sessionId": <optional>,
 ##     "reconnectToken": <optional>}` outbound,
 ##     `{"type": "joined", "sessionId": "...", "role": "p1"|"p2",
@@ -67,9 +68,12 @@ func _ready() -> void:
 	ws.connect("connection_failed", Callable(self, "_on_ws_connection_failed"))
 
 
-func connect_to_server(url: String, name_hint: String = "") -> void:
+func connect_to_server(url: String, name_hint: String = "", room_hint: String = "") -> void:
 	endpoint = url
 	display_name = name_hint
+	## Blank keeps the bridge default ("nerdiclash") — room names are
+	## [a-zA-Z0-9_-]{1,32} and each is an isolated 2P game (wave-11 T1).
+	room_name = room_hint if room_hint != "" else "nerdiclash"
 	_joined = false
 	_auto_retried = false
 	_room_full_notified = false

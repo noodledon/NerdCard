@@ -11,6 +11,45 @@ interface JsonClient {
   ws: WebSocket;
   sessionId: string;
   role: 'p1' | 'p2';
+  /** Room this seat belongs to — teardown/reclaim stay inside it. */
+  slot: GameSlot;
+}
+
+/**
+ * Everything one room needs — the set of state JsonBridgeServer used to hold
+ * as singletons, multiplied out per room name. A slot is born on the first
+ * join that names it and dies the moment its last live socket disconnects;
+ * `game` is set to undefined in that drain window so queued work self-rejects.
+ *
+ * `socketLiveness` is deliberately NOT in the bundle: it is keyed by socket,
+ * and a socket exists before it names a room, so liveness stays server-global
+ * and the heartbeat sweeps `wss.clients` regardless of room membership.
+ */
+interface GameSlot {
+  name: string;
+  game: NerdiClashGame | undefined;
+  clients: Map<string, JsonClient>;
+  /**
+   * Seat-ownership proof: sessionId → token issued at join, scoped to this
+   * room — a token minted in room A must not reclaim a seat in room B.
+   * sessionIds are sequential (`json-N`) and trivially guessable, so reclaim
+   * requires the unguessable token the original holder received inside
+   * `joined`. Entries die with the slot — a torn-down room has no
+   * reclaimable seats.
+   */
+  reconnectTokens: Map<string, string>;
+  /**
+   * The room's single ordered mutation lane. SymPy-backed commands
+   * (integral, limit, LA ops) await HTTP inside dispatchIntent — without
+   * serialization a second intent could mutate state between the first's
+   * validation and mutation. Intents and ticks for this room chain through
+   * this promise so they run strictly in arrival order. Lifecycle
+   * (join/leave/disconnect) deliberately bypasses it. Stale work
+   * self-rejects via the `slot.game === game` guard at each call site.
+   */
+  intentQueue: Promise<void>;
+  /** Set while a tick waits on the lane — collapses back-to-back firings. */
+  tickQueued: boolean;
 }
 
 /**
@@ -21,36 +60,52 @@ interface JsonClient {
  */
 const HEARTBEAT_INTERVAL_MS = 10_000;
 
+/**
+ * Room selected by `join_room.room` when it is missing or empty — the room
+ * every pre-multi-room client already asked for, so omitting the field keeps
+ * the old single-room behavior.
+ */
+const DEFAULT_ROOM = 'nerdiclash';
+
+/**
+ * Hard ceiling on simultaneously-live slots. Without it each distinct room
+ * name in a join would spawn a game + queue forever — a one-packet memory
+ * leak. 16 concurrent 2P rooms is far beyond v1's expected load.
+ */
+const ROOM_CAP = 16;
+
+const ROOM_NAME_PATTERN = /^[a-zA-Z0-9_-]{1,32}$/;
+
+/** Missing/empty → the default room; anything else must match the pattern. */
+function normalizeRoomName(raw: unknown): string | null {
+  if (raw === undefined || raw === null || raw === '') return DEFAULT_ROOM;
+  if (typeof raw !== 'string' || !ROOM_NAME_PATTERN.test(raw)) return null;
+  return raw;
+}
+
 export class JsonBridgeServer {
   private wss: WebSocketServer | undefined;
-  private game: NerdiClashGame | undefined;
-  private clients = new Map<string, JsonClient>();
+  private readonly slots = new Map<string, GameSlot>();
   private nextSessionId = 1;
   private snapshotInterval: ReturnType<typeof setInterval> | undefined;
   private tickInterval: ReturnType<typeof setInterval> | undefined;
   private heartbeatInterval: ReturnType<typeof setInterval> | undefined;
   private httpServer: http.Server | undefined;
-  /**
-   * Seat-ownership proof: sessionId → token issued at join. sessionIds are
-   * sequential (`json-N`) and trivially guessable, so reclaim requires the
-   * unguessable token the original holder received inside `joined`. Entries
-   * die with the game — a torn-down room has no reclaimable seats.
-   */
-  private readonly reconnectTokens = new Map<string, string>();
   /** Last-seen-pong flag per socket for the heartbeat sweep. */
   private readonly socketLiveness = new WeakMap<WebSocket, boolean>();
+
   /**
-   * Single ordered mutation lane. SymPy-backed commands (integral, limit, LA
-   * ops) await HTTP inside dispatchIntent — without serialization a second
-   * intent could mutate state between the first's validation and mutation.
-   * Intents and ticks chain through this promise so they run strictly in
-   * arrival order. Lifecycle (join/leave/disconnect) deliberately bypasses
-   * it. The queue spans game instances harmlessly: stale work self-rejects
-   * via the `this.game === game` guard at each call site.
+   * Default-room views kept for single-room tooling and the pre-multi-room
+   * bridge tests, which reach these internals directly. All live code paths
+   * go through `slots`.
    */
-  private intentQueue: Promise<void> = Promise.resolve();
-  /** Set while a tick waits on the lane — collapses back-to-back firings. */
-  private tickQueued = false;
+  private get game(): NerdiClashGame | undefined {
+    return this.slots.get(DEFAULT_ROOM)?.game;
+  }
+
+  private get clients(): Map<string, JsonClient> {
+    return this.slots.get(DEFAULT_ROOM)?.clients ?? new Map();
+  }
 
   start(port: number): void {
     this.httpServer = http.createServer();
@@ -73,25 +128,28 @@ export class JsonBridgeServer {
     this.heartbeatInterval = setInterval(() => this.runHeartbeat(), HEARTBEAT_INTERVAL_MS);
   }
 
-  /** Append work to the mutation lane; the chain itself never rejects. */
-  private runSerialized<T>(fn: () => T | Promise<T>): Promise<T> {
-    const run = this.intentQueue.then(fn);
-    this.intentQueue = run.then(() => undefined, () => undefined);
+  /** Append work to a room's mutation lane; the chain itself never rejects. */
+  private runSerialized<T>(slot: GameSlot, fn: () => T | Promise<T>): Promise<T> {
+    const run = slot.intentQueue.then(fn);
+    slot.intentQueue = run.then(() => undefined, () => undefined);
     return run;
   }
 
   /**
-   * Interval callback: enqueue the tick behind any in-flight intent. Firings
-   * that arrive while a tick is already waiting collapse into it — a long
-   * SymPy call produces one catch-up tick, not a pile-up of stale ones.
+   * Interval callback: enqueue a tick per room behind any in-flight intent.
+   * Firings that arrive while a tick is already waiting collapse into it — a
+   * long SymPy call produces one catch-up tick, not a pile-up of stale ones.
+   * A slot with no live clients is being torn down, so it skips work.
    */
   private queueTick(): void {
-    if (this.tickQueued) return;
-    this.tickQueued = true;
-    void this.runSerialized(() => {
-      this.tickQueued = false;
-      this.game?.tick(Date.now());
-    }).catch((err) => console.error('[JsonBridge] tick error:', err));
+    for (const slot of this.slots.values()) {
+      if (!slot.game || slot.clients.size === 0 || slot.tickQueued) continue;
+      slot.tickQueued = true;
+      void this.runSerialized(slot, () => {
+        slot.tickQueued = false;
+        slot.game?.tick(Date.now());
+      }).catch((err) => console.error('[JsonBridge] tick error:', err));
+    }
   }
 
   private async handleMessage(ws: WebSocket, data: unknown): Promise<void> {
@@ -120,22 +178,23 @@ export class JsonBridgeServer {
       return;
     }
 
-    if (!this.game) {
+    const slot = client.slot;
+    if (!slot.game) {
       this.send(ws, { type: 'error', code: 'NO_GAME', message: 'Game not initialized' });
       return;
     }
     // Bind the queued work to the game that existed at arrival: if the room
     // is torn down and rebuilt before the intent runs, it must not mutate a
     // different game than the one the player joined.
-    const game = this.game;
+    const game = slot.game;
 
     switch (msgType) {
       case 'ready_inst':
         this.send(ws, { type: 'ack', intent: 'ready_inst' });
         break;
       case 'end_turn': {
-        const result = await this.runSerialized(async (): Promise<CommandResult> => {
-          if (this.game !== game) return { ok: false, reason: 'game is gone' };
+        const result = await this.runSerialized(slot, async (): Promise<CommandResult> => {
+          if (slot.game !== game) return { ok: false, reason: 'game is gone' };
           return game.requestEndTurn(client.sessionId);
         });
         if (!result.ok) {
@@ -164,8 +223,8 @@ export class JsonBridgeServer {
         }
         const payload: Record<string, unknown> = { ...parsed.message };
         const intentType = parsed.message.type;
-        const result = await this.runSerialized(async (): Promise<CommandResult> => {
-          if (this.game !== game) return { ok: false, reason: 'game is gone' };
+        const result = await this.runSerialized(slot, async (): Promise<CommandResult> => {
+          if (slot.game !== game) return { ok: false, reason: 'game is gone' };
           return game.dispatchIntent(client.sessionId, intentType, payload);
         });
         if (!result.ok) {
@@ -184,38 +243,81 @@ export class JsonBridgeServer {
     }
   }
 
-  private handleJoin(ws: WebSocket, msg: Record<string, unknown>): void {
-    if (!this.game) {
-      this.game = new NerdiClashGame();
-      this.game.setEventListener((ev) => this.broadcastGameEvent(ev));
+  /**
+   * Resolve the room a join names into a live slot, creating it under
+   * ROOM_CAP. Returns undefined when the join was already answered with an
+   * error (INVALID_PAYLOAD on a bad name, SERVER_FULL at the cap).
+   */
+  private slotForJoin(ws: WebSocket, msg: Record<string, unknown>): GameSlot | undefined {
+    const room = normalizeRoomName(msg.room);
+    if (room === null) {
+      this.send(ws, {
+        type: 'error',
+        code: ErrorCode.INVALID_PAYLOAD,
+        message: 'room must match [a-zA-Z0-9_-]{1,32}',
+      });
+      return undefined;
     }
+    const existing = this.slots.get(room);
+    if (existing) return existing;
+    if (this.slots.size >= ROOM_CAP) {
+      this.send(ws, {
+        type: 'error',
+        code: ErrorCode.SERVER_FULL,
+        message: `Server room cap (${ROOM_CAP}) reached`,
+      });
+      ws.close();
+      return undefined;
+    }
+    const slot: GameSlot = {
+      name: room,
+      game: undefined,
+      clients: new Map(),
+      reconnectTokens: new Map(),
+      intentQueue: Promise.resolve(),
+      tickQueued: false,
+    };
+    this.slots.set(room, slot);
+    return slot;
+  }
+
+  private handleJoin(ws: WebSocket, msg: Record<string, unknown>): void {
+    const slot = this.slotForJoin(ws, msg);
+    if (!slot) return;
+
+    if (!slot.game) {
+      slot.game = new NerdiClashGame();
+      slot.game.setEventListener((ev) => this.broadcastGameEvent(slot, ev));
+    }
+    const game = slot.game;
 
     const displayName = typeof msg.displayName === 'string' ? msg.displayName : undefined;
 
     // Reconnection: if the client sends back a sessionId that belongs to a
-    // currently-disconnected player AND the reconnectToken issued with that
-    // seat, restore the seat instead of rejecting the join as ROOM_FULL.
-    // This mirrors the Colyseus room's reconnection window (allowReconnection)
-    // which the raw JSON path otherwise lacks. The token is required because
-    // sessionIds are sequential and guessable — without it any third
-    // connection could claim a dropped seat and receive its private hand.
+    // currently-disconnected player in THIS room AND the reconnectToken
+    // issued with that seat, restore the seat instead of rejecting the join
+    // as ROOM_FULL. This mirrors the Colyseus room's reconnection window
+    // (allowReconnection) which the raw JSON path otherwise lacks. The token
+    // is required because sessionIds are sequential and guessable — without
+    // it any third connection could claim a dropped seat and receive its
+    // private hand.
     const rejoinId = typeof msg.sessionId === 'string' ? msg.sessionId : undefined;
     const rejoinToken = typeof msg.reconnectToken === 'string' ? msg.reconnectToken : undefined;
-    const seatToken = rejoinId ? this.reconnectTokens.get(rejoinId) : undefined;
-    if (rejoinId && seatToken !== undefined && rejoinToken === seatToken && !this.clients.has(rejoinId)) {
-      const existing = this.game.getPlayer(rejoinId);
+    const seatToken = rejoinId ? slot.reconnectTokens.get(rejoinId) : undefined;
+    if (rejoinId && seatToken !== undefined && rejoinToken === seatToken && !slot.clients.has(rejoinId)) {
+      const existing = game.getPlayer(rejoinId);
       if (existing && !existing.isConnected) {
-        this.game.reconnectPlayer(rejoinId, displayName);
-        const role: 'p1' | 'p2' = [...this.game.state.players.keys()][0] === rejoinId ? 'p1' : 'p2';
-        this.clients.set(rejoinId, { ws, sessionId: rejoinId, role });
+        game.reconnectPlayer(rejoinId, displayName);
+        const role: 'p1' | 'p2' = [...game.state.players.keys()][0] === rejoinId ? 'p1' : 'p2';
+        slot.clients.set(rejoinId, { ws, sessionId: rejoinId, role, slot });
         this.send(ws, { type: 'joined', sessionId: rejoinId, role, reconnectToken: seatToken });
-        this.sendDefenseResumedIfNeeded(ws);
-        this.broadcastSnapshots();
+        this.sendDefenseResumedIfNeeded(ws, slot);
+        this.broadcastSnapshots(slot);
         return;
       }
     }
 
-    if (this.game.playerCount() >= 2) {
+    if (game.playerCount() >= 2) {
       this.send(ws, { type: 'error', code: 'ROOM_FULL', message: 'Game already has 2 players' });
       ws.close();
       return;
@@ -223,37 +325,40 @@ export class JsonBridgeServer {
 
     const sessionId = `json-${this.nextSessionId++}`;
     const reconnectToken = randomUUID();
-    const role: 'p1' | 'p2' = this.game.playerCount() === 0 ? 'p1' : 'p2';
+    const role: 'p1' | 'p2' = game.playerCount() === 0 ? 'p1' : 'p2';
 
-    this.game.addPlayer(sessionId, displayName ?? sessionId);
-    this.reconnectTokens.set(sessionId, reconnectToken);
-    this.clients.set(sessionId, { ws, sessionId, role });
+    game.addPlayer(sessionId, displayName ?? sessionId);
+    slot.reconnectTokens.set(sessionId, reconnectToken);
+    slot.clients.set(sessionId, { ws, sessionId, role, slot });
 
     this.send(ws, { type: 'joined', sessionId, role, reconnectToken });
-    this.sendDefenseResumedIfNeeded(ws);
+    this.sendDefenseResumedIfNeeded(ws, slot);
 
-    if (this.game.playerCount() === 2) {
-      this.game.startGame();
+    if (game.playerCount() === 2) {
+      game.startGame();
       // Force an immediate snapshot so both clients receive the construction
       // phase right away instead of waiting for the next 100ms interval tick.
-      this.broadcastSnapshots();
+      this.broadcastSnapshots(slot);
     }
   }
 
   private handleDisconnect(ws: WebSocket): void {
     const client = this.findClientByWs(ws);
     if (!client) return;
+    const slot = client.slot;
 
-    this.game?.removePlayer(client.sessionId);
-    this.clients.delete(client.sessionId);
+    slot.game?.removePlayer(client.sessionId);
+    slot.clients.delete(client.sessionId);
 
-    // Reset the game only once every live connection is gone. Tearing it down
-    // while a player is still connected would strand them, and keying off the
-    // connected-client count (not playerCount, which lingers as disconnected
-    // player state) lets a fresh game start cleanly on the next join.
-    if (this.clients.size === 0) {
-      this.game = undefined;
-      this.reconnectTokens.clear();
+    // Retire the room only once every live connection is gone. Tearing it
+    // down while a player is still connected would strand them, and keying
+    // off the connected-client count (not playerCount, which lingers as
+    // disconnected player state) lets a fresh room start cleanly on the
+    // next join. Deleting the slot frees the whole game + queue + tokens.
+    if (slot.clients.size === 0) {
+      slot.game = undefined;
+      slot.reconnectTokens.clear();
+      this.slots.delete(slot.name);
     }
   }
 
@@ -277,13 +382,16 @@ export class JsonBridgeServer {
 
   // Mirrors NerdiClashRoom's game_event broadcast — the Colyseus path wraps
   // details into a JSON string; the JSON bridge sends them natively.
-  private broadcastGameEvent(ev: { event: string; actorId: string; details: Record<string, unknown> }): void {
-    if (!this.game) return;
+  private broadcastGameEvent(
+    slot: GameSlot,
+    ev: { event: string; actorId: string; details: Record<string, unknown> },
+  ): void {
+    if (!slot.game) return;
     const payload = {
       type: 'game_event',
       event: ev.event,
       actorId: ev.actorId,
-      turnId: this.game.state.turnIndex,
+      turnId: slot.game.state.turnIndex,
       details: ev.details,
     };
     // A declared winner also rides out as the dedicated GameOverSchema frame
@@ -296,7 +404,7 @@ export class JsonBridgeServer {
           winReason: typeof ev.details.winReason === 'string' ? ev.details.winReason : null,
         }
       : undefined;
-    for (const client of this.clients.values()) {
+    for (const client of slot.clients.values()) {
       this.send(client.ws, payload);
       if (gameOver) this.send(client.ws, gameOver);
     }
@@ -304,25 +412,32 @@ export class JsonBridgeServer {
 
   // A (re)joining defender needs the open window + deadline — mirrors the
   // room's onJoin defense_resumed event.
-  private sendDefenseResumedIfNeeded(ws: WebSocket): void {
-    if (!this.game) return;
-    if (this.game.state.phase === Phase.defense && this.game.state.turnDeadline > Date.now()) {
+  private sendDefenseResumedIfNeeded(ws: WebSocket, slot: GameSlot): void {
+    if (!slot.game) return;
+    if (slot.game.state.phase === Phase.defense && slot.game.state.turnDeadline > Date.now()) {
       this.send(ws, {
         type: 'game_event',
         event: 'defense_resumed',
         actorId: '',
-        turnId: this.game.state.turnIndex,
-        details: { deadline: this.game.state.turnDeadline },
+        turnId: slot.game.state.turnIndex,
+        details: { deadline: slot.game.state.turnDeadline },
       });
     }
   }
 
-  private broadcastSnapshots(): void {
-    if (!this.game) return;
-
-    for (const client of this.clients.values()) {
-      const snapshot = this.game.getStateSnapshotForPlayer(client.sessionId);
-      this.send(client.ws, { type: 'state_snapshot', state: snapshot });
+  /**
+   * Push a per-player-filtered snapshot to every client. Called with a slot
+   * to fan out just that room (join/startGame immediacy); called with no
+   * argument by the 100ms interval to fan out all rooms.
+   */
+  private broadcastSnapshots(onlySlot?: GameSlot): void {
+    const targets = onlySlot ? [onlySlot] : this.slots.values();
+    for (const slot of targets) {
+      if (!slot.game) continue;
+      for (const client of slot.clients.values()) {
+        const snapshot = slot.game.getStateSnapshotForPlayer(client.sessionId);
+        this.send(client.ws, { type: 'state_snapshot', state: snapshot });
+      }
     }
   }
 
@@ -333,8 +448,10 @@ export class JsonBridgeServer {
   }
 
   private findClientByWs(ws: WebSocket): JsonClient | undefined {
-    for (const client of this.clients.values()) {
-      if (client.ws === ws) return client;
+    for (const slot of this.slots.values()) {
+      for (const client of slot.clients.values()) {
+        if (client.ws === ws) return client;
+      }
     }
     return undefined;
   }
@@ -364,15 +481,17 @@ export class JsonBridgeServer {
       clearInterval(this.heartbeatInterval);
       this.heartbeatInterval = undefined;
     }
-    this.reconnectTokens.clear();
     this.wss?.close();
     this.wss = undefined;
     this.httpServer?.close();
     this.httpServer = undefined;
-    for (const client of this.clients.values()) {
-      client.ws.close();
+    for (const slot of this.slots.values()) {
+      for (const client of slot.clients.values()) {
+        client.ws.close();
+      }
+      slot.reconnectTokens.clear();
+      slot.game = undefined;
     }
-    this.clients.clear();
-    this.game = undefined;
+    this.slots.clear();
   }
 }

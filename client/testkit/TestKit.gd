@@ -248,7 +248,11 @@ func _run_command(msg: Dictionary) -> Variant:
 				ws.close()
 			return {"closed": ws != null}
 		"connect_ws":
-			_cm.connect_to_server(String(msg.get("url", "ws://localhost:2568")))
+			_cm.connect_to_server(
+				String(msg.get("url", "ws://localhost:2568")),
+				"",
+				String(msg.get("room", "")),
+			)
 			return {"connecting": true}
 		"get_log":
 			var include_snaps: bool = msg.get("include_snapshots", false)
