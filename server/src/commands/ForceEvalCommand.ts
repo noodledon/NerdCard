@@ -2,6 +2,7 @@ import {
   failure, findCard, getPlayer, isFailure, moveCardToGraveyard, phaseAllowed,
   playerValues, requiredCard, success, type CommandResult, GameCommand,
 } from './base.js';
+import { DEFAULT_MODE, MODE_PROFILES } from '../logic/modes.js';
 
 export interface ForceEvalPayload { playerId: string; cardId: string; vvcCardId: string; }
 
@@ -15,6 +16,13 @@ export class ForceEvalCommand extends GameCommand<ForceEvalPayload> {
     if (isFailure(card)) return card;
     if (card.cardType !== 'forceEval' && card.subtype !== 'Force Evaluation') {
       return failure('force evaluation card required');
+    }
+    // OQ-10: Showdown is a dead card in Variable Isolation — its domination
+    // win is off and the failed nomination would be pure self-harm, so the
+    // profile rejects the play outright (decks stay unified, OQ-14).
+    const profile = this.context()?.profile ?? MODE_PROFILES[DEFAULT_MODE];
+    if (!profile.forceEvalCard) {
+      return failure('Showdown has no effect in Variable Isolation');
     }
     if (state.forceEvalRequested) {
       this.context()?.emitGameEvent?.('fizzle', playerId, {

@@ -1,6 +1,7 @@
 import { Command } from '@colyseus/command';
 import { CardSchema } from '../state/schema.js';
 import { catalogEffectParams } from '../data/load-catalog.js';
+import type { ModeProfile } from '../logic/modes.js';
 
 export interface CommandResult {
   ok: boolean;
@@ -114,6 +115,11 @@ export interface CommandContext {
   };
   forceEval?(state: CommandState, nominatorId: string, vvcValue: number): unknown;
   emitGameEvent?(event: string, actorId: string, details?: Record<string, unknown>): void;
+  /**
+   * The room's resolved mode profile (NerdiClashGame injects it at dispatch).
+   * Mode-gated rules read it here; absent → callers assume v1 defaults.
+   */
+  profile?: ModeProfile;
 }
 
 export abstract class GameCommand<Payload> extends Command<CommandState, Payload> {
