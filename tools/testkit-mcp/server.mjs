@@ -257,10 +257,10 @@ const TOOLS = [
   },
   {
     name: "connect_game",
-    description: "Tell a client to connect to the game bridge (default ws://localhost:2568).",
+    description: "Tell a client to connect to the game bridge (default ws://localhost:2568). Optional room/mode ride join_room (blank = bridge defaults).",
     inputSchema: {
       type: "object",
-      properties: { client_id: { type: "string" }, url: { type: "string" } },
+      properties: { client_id: { type: "string" }, url: { type: "string" }, room: { type: "string" }, mode: { type: "string" } },
       required: ["client_id"],
     },
   },
@@ -289,7 +289,7 @@ const HANDLERS = {
   screenshot: (a) => sendToClient(a.client_id, { cmd: "screenshot", path: a.path || path.join(SHOTS_DIR, `testkit-${Date.now()}.png`) }),
   scenario: (a) => sendToClient(a.client_id, { cmd: "scenario", steps: a.steps }, a.timeout_ms || CMD_TIMEOUT_MS),
   get_messages: (a) => sendToClient(a.client_id, { cmd: "get_log", include_snapshots: !!a.include_snapshots }),
-  connect_game: (a) => sendToClient(a.client_id, { cmd: "connect_ws", url: a.url || "ws://localhost:2568" }),
+  connect_game: (a) => sendToClient(a.client_id, { cmd: "connect_ws", url: a.url || "ws://localhost:2568", room: a.room || "", mode: a.mode || "" }),
 };
 
 // ---------- stdio MCP ----------
