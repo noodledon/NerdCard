@@ -3,6 +3,7 @@ import { randomUUID } from 'node:crypto';
 import { WebSocket, WebSocketServer } from 'ws';
 import { NerdiClashGame } from './rooms/NerdiClashGame.js';
 import { Phase } from './logic/fsm.js';
+import { DEFAULT_MODE, GAME_MODES, isGameMode, type GameMode } from './logic/modes.js';
 import { ErrorCode, errorCodeForReason } from './shared/ErrorCode.js';
 import { parseClientMessage } from './shared/messages.js';
 import type { CommandResult } from './commands/base.js';
@@ -27,6 +28,13 @@ interface JsonClient {
  */
 interface GameSlot {
   name: string;
+  /**
+   * The room's GameMode — captured from the creating join's `join_room.mode`,
+   * fixed for the slot's life. A later join naming this room with a different
+   * mode is rejected MODE_MISMATCH; seat reclaim ignores the field entirely
+   * (the seat's mode is the room's).
+   */
+  mode: GameMode;
   game: NerdiClashGame | undefined;
   clients: Map<string, JsonClient>;
   /**
@@ -88,6 +96,15 @@ function normalizeRoomName(raw: unknown): string | null {
   if (raw === undefined || raw === null || raw === '') return DEFAULT_ROOM;
   if (typeof raw !== 'string' || !ROOM_NAME_PATTERN.test(raw)) return null;
   return raw;
+}
+
+/**
+ * Missing/empty → the default mode (pre-modes clients keep v1 rooms);
+ * anything else must name a GameMode or the join is INVALID_PAYLOAD.
+ */
+function normalizeMode(raw: unknown): GameMode | null {
+  if (raw === undefined || raw === null || raw === '') return DEFAULT_MODE;
+  return isGameMode(raw) ? raw : null;
 }
 
 export class JsonBridgeServer {
@@ -280,7 +297,7 @@ export class JsonBridgeServer {
    * ROOM_CAP. Returns undefined when the join was already answered with an
    * error (INVALID_PAYLOAD on a bad name, SERVER_FULL at the cap).
    */
-  private slotForJoin(ws: WebSocket, msg: Record<string, unknown>): GameSlot | undefined {
+  private slotForJoin(ws: WebSocket, msg: Record<string, unknown>, mode: GameMode): GameSlot | undefined {
     const room = normalizeRoomName(msg.room);
     if (room === null) {
       this.send(ws, {
@@ -303,6 +320,7 @@ export class JsonBridgeServer {
     }
     const slot: GameSlot = {
       name: room,
+      mode,
       game: undefined,
       clients: new Map(),
       reconnectTokens: new Map(),
@@ -315,11 +333,20 @@ export class JsonBridgeServer {
   }
 
   private handleJoin(ws: WebSocket, msg: Record<string, unknown>): void {
-    const slot = this.slotForJoin(ws, msg);
+    const mode = normalizeMode(msg.mode);
+    if (mode === null) {
+      this.send(ws, {
+        type: 'error',
+        code: ErrorCode.INVALID_PAYLOAD,
+        message: `mode must be one of ${GAME_MODES.join(' | ')}`,
+      });
+      return;
+    }
+    const slot = this.slotForJoin(ws, msg, mode);
     if (!slot) return;
 
     if (!slot.game) {
-      slot.game = new NerdiClashGame();
+      slot.game = new NerdiClashGame(slot.mode);
       slot.game.setEventListener((ev) => this.broadcastGameEvent(slot, ev));
     }
     const game = slot.game;
@@ -343,11 +370,23 @@ export class JsonBridgeServer {
         game.reconnectPlayer(rejoinId, displayName);
         const role: 'p1' | 'p2' = [...game.state.players.keys()][0] === rejoinId ? 'p1' : 'p2';
         slot.clients.set(rejoinId, { ws, sessionId: rejoinId, role, slot });
-        this.send(ws, { type: 'joined', sessionId: rejoinId, role, reconnectToken: seatToken });
+        this.send(ws, { type: 'joined', sessionId: rejoinId, role, reconnectToken: seatToken, mode: slot.mode });
         this.sendDefenseResumedIfNeeded(ws, slot);
         this.broadcastSnapshots(slot);
         return;
       }
+    }
+
+    // A fresh seat on a live room must agree with the mode the room was
+    // created with — silently absorbing a mismatched mode would seat the
+    // client in a game it did not ask for. Seat reclaim above ignores mode.
+    if (slot.mode !== mode) {
+      this.send(ws, {
+        type: 'error',
+        code: ErrorCode.MODE_MISMATCH,
+        message: `mode mismatch: room '${slot.name}' is ${slot.mode}`,
+      });
+      return;
     }
 
     if (game.playerCount() >= 2) {
@@ -364,7 +403,7 @@ export class JsonBridgeServer {
     slot.reconnectTokens.set(sessionId, reconnectToken);
     slot.clients.set(sessionId, { ws, sessionId, role, slot });
 
-    this.send(ws, { type: 'joined', sessionId, role, reconnectToken });
+    this.send(ws, { type: 'joined', sessionId, role, reconnectToken, mode: slot.mode });
     this.sendDefenseResumedIfNeeded(ws, slot);
 
     if (game.playerCount() === 2) {
@@ -388,6 +427,7 @@ export class JsonBridgeServer {
       playerCount: slot.game?.playerCount() ?? 0,
       connected: slot.clients.size,
       phase: slot.game?.state.phase ?? Phase.waiting,
+      mode: slot.mode,
     }));
     this.send(ws, { type: 'room_list', rooms });
   }
@@ -454,7 +494,7 @@ export class JsonBridgeServer {
       sessionId: p.sessionId,
       displayName: p.displayName,
     }));
-    const fresh = new NerdiClashGame();
+    const fresh = new NerdiClashGame(slot.mode);
     fresh.setEventListener((ev) => this.broadcastGameEvent(slot, ev));
     slot.game = fresh;
     slot.rematchVotes.clear();

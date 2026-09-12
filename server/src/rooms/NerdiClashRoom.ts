@@ -4,6 +4,7 @@ import { Phase, type Phase as FSMPhase } from '../logic/fsm.js';
 import { ErrorCode, errorCodeForReason } from '../shared/ErrorCode.js';
 import { registerHandlers, type HandlerClient } from './handlers.js';
 import { NerdiClashGame } from './NerdiClashGame.js';
+import { DEFAULT_MODE, isGameMode, type GameMode } from '../logic/modes.js';
 
 interface NerdiClashClient {
   sessionId: string;
@@ -36,6 +37,13 @@ const ColyseusRoom = (colyseus as unknown as { Room: RoomConstructor }).Room;
 
 type JoinOptions = { displayName?: string };
 
+/** options.mode → GameMode; anything absent/unknown keeps the v1 default. */
+function readModeOption(options: unknown): GameMode {
+  if (typeof options !== 'object' || options === null) return DEFAULT_MODE;
+  const candidate = (options as { mode?: unknown }).mode;
+  return isGameMode(candidate) ? candidate : DEFAULT_MODE;
+}
+
 /**
  * T10 — Colyseus transport wrapper for NerdiClash.
  *
@@ -46,6 +54,7 @@ type JoinOptions = { displayName?: string };
  */
 export class NerdiClashRoom extends ColyseusRoom {
   private game!: NerdiClashGame;
+  private mode: GameMode = DEFAULT_MODE;
   private disconnectTimer: ReturnType<typeof setTimeout> | undefined;
   /**
    * Single ordered mutation lane — same rationale as the JSON bridge: a
@@ -56,8 +65,11 @@ export class NerdiClashRoom extends ColyseusRoom {
   private intentQueue: Promise<void> = Promise.resolve();
   private tickQueued = false;
 
-  async onCreate(_options: unknown): Promise<void> {
-    this.game = new NerdiClashGame();
+  async onCreate(options: unknown): Promise<void> {
+    // Bridge parity: the room's mode arrives via creation options and is
+    // fixed for the room's life. Unknown/absent values keep the v1 default.
+    this.mode = readModeOption(options);
+    this.game = new NerdiClashGame(this.mode);
     this.setState(this.game.state);
 
     this.maxClients = 2;
@@ -81,7 +93,7 @@ export class NerdiClashRoom extends ColyseusRoom {
       }
     });
 
-    await this.setMetadata({ mode: 'nerdiclash' });
+    await this.setMetadata({ mode: this.mode });
 
     this.onMessage('ping', () => undefined);
     registerHandlers(this, (type, handler) => {

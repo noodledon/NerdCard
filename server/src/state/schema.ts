@@ -278,6 +278,11 @@ export class RoomConfigSchema extends Schema {
 
   @type('string')
   seed: string = '';
+
+  /** GameMode string ('nerdiclash' | 'variable_isolation' | 'classic_clash') —
+   *  fixed at room creation; surfaced flat on snapshots as `mode`. */
+  @type('string')
+  mode: string = 'nerdiclash';
 }
 
 // ─── GameRoomState (root) ──────────────────────────────────────────────────────
