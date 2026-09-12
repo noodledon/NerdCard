@@ -101,6 +101,14 @@ const DECK_BUTTON_BASE_TEXT: Dictionary = {
 const MATH_GREEN: Color = Color(0, 1, 0.533)
 const TEXT_DIM: Color = Color(0.604, 0.604, 0.69)
 
+## Identifier tokens that are functions/constants, not variables — used by
+## _expression_variable to guess a board's variable for composition plays.
+const RESERVED_EXPR_NAMES: Array = [
+	"exp", "ln", "log", "log2", "log10", "sin", "cos", "tan", "cot", "sec",
+	"csc", "asin", "acos", "atan", "sqrt", "abs", "min", "max", "mod",
+	"pi", "e", "phi", "tau", "i",
+]
+
 var _local_role: String = ""
 
 ## Deck armed by a first draw-button click. A second click on the same deck
@@ -236,6 +244,24 @@ func _first_active_matrix_board_id(player: Dictionary) -> String:
 		if String(board.get("domain", "")) == "matrix" or String(board.get("expression", "")).begins_with("matrix("):
 			return String(board.get("boardId", ""))
 	return ""
+
+
+## Best-effort variable name for a composition play: the distinct identifier
+## tokens in the expression minus RESERVED_EXPR_NAMES. v1 boards are
+## single-variable almost always, so the sole hit is the right symbol; zero
+## or several hits fall back to 'x' and the server still validates (an
+## ambiguous outer board is rejected with 'ambiguous variable — specify one').
+func _expression_variable(expression: String) -> String:
+	var found: Dictionary = {}
+	var regex := RegEx.new()
+	regex.compile("[A-Za-z_]+")
+	for m in regex.search_all(expression):
+		var token: String = m.get_string()
+		if not RESERVED_EXPR_NAMES.has(token):
+			found[token] = true
+	if found.size() == 1:
+		return String(found.keys()[0])
+	return "x"
 
 
 ## Number-deck cards (Prime/Irrational — anything carrying a numeric
@@ -729,6 +755,33 @@ func _on_card_clicked(card_id: String) -> void:
 	if subtype == "Eval":
 		if not _try_send_eval():
 			_show_error("", "Needs: play phase, an active board, and a selected Anchor")
+		return
+
+	## Composition targets the first active own board (outer) and names the
+	## next active own board as secondaryBoardId (inner) — v1 has no board
+	## picker, so the client sends the same pair the server's auto-pick would
+	## choose, plus the outer board's variable.
+	if card_type == "composition":
+		var outer_board_id: String = _first_active_board_id(local_player)
+		if outer_board_id == "":
+			_show_error("", "Needs an active board to compose onto")
+			return
+		var outer_expression: String = ""
+		var inner_board_id: String = ""
+		for board in local_player.get("boards", []):
+			var bid: String = String(board.get("boardId", ""))
+			if bid == outer_board_id:
+				outer_expression = String(board.get("expression", ""))
+			elif inner_board_id == "" and bool(board.get("isActive", false)):
+				inner_board_id = bid
+		var composition_payload: Dictionary = {
+			"cardId": card_id,
+			"target": {"kind": "self_board", "id": outer_board_id},
+			"variable": _expression_variable(outer_expression),
+		}
+		if inner_board_id != "":
+			composition_payload["secondaryBoardId"] = inner_board_id
+		ConnectionManager.send_intent("play_card", composition_payload)
 		return
 
 	## Board-scoped plays (addTerm/derivative/integral/limit/composition and

@@ -61,6 +61,22 @@ describe('messages', () => {
     for (const message of messages) expect(parseClientMessage(message).ok).toBe(true);
   });
 
+  it('play_card keeps composition fields (variable, secondaryBoardId) through the schema', () => {
+    const result = parseClientMessage({
+      type: 'play_card',
+      cardId: 'act-special-composition-001',
+      target: { kind: 'self_board', id: 'board-1' },
+      variable: 'y',
+      secondaryBoardId: 'board-2',
+    });
+
+    expect(result.ok).toBe(true);
+    if (result.ok && result.message.type === 'play_card') {
+      expect(result.message.variable).toBe('y');
+      expect(result.message.secondaryBoardId).toBe('board-2');
+    }
+  });
+
   it('set_trap accepts a missing trigger (server derives it from the card)', () => {
     expect(parseClientMessage({ type: 'set_trap', cardId: 'card-1' }).ok).toBe(true);
     // A client-supplied value still validates for backward compatibility.

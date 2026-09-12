@@ -770,10 +770,20 @@ export class NerdiClashGame {
           }
           case 'composition': {
             const outerBoardId = boardId ?? [...player.boards][0]?.boardId;
-            const innerBoardId = [...player.boards].find((board) => board?.boardId !== outerBoardId)?.boardId;
-            return outerBoardId && innerBoardId
-              ? { intent: 'composition', payload: { playerId, cardId, outerBoardId, innerBoardId } }
+            // The client may name the inner board via secondaryBoardId; the
+            // documented v1 fallback auto-picks the first board that isn't the
+            // outer. `variable` rides through to CompositionCommand, which
+            // defaults it to the outer board's sole distinct variable.
+            const secondaryBoardId = typeof payload.secondaryBoardId === 'string' && payload.secondaryBoardId !== ''
+              ? payload.secondaryBoardId
               : undefined;
+            const innerBoardId = secondaryBoardId
+              ?? [...player.boards].find((board) => board?.boardId !== outerBoardId)?.boardId;
+            if (!outerBoardId || !innerBoardId) return undefined;
+            const variable = typeof payload.variable === 'string' && payload.variable !== ''
+              ? payload.variable
+              : undefined;
+            return { intent: 'composition', payload: { playerId, cardId, outerBoardId, innerBoardId, variable } };
           }
           case 'integral':
             return { intent: 'integral', payload: { playerId, cardId, boardId } };
