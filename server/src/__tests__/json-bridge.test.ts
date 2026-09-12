@@ -7,7 +7,7 @@ import { Phase } from '../logic/fsm.js';
 import { mathEngine } from '../math/index.js';
 import type { EngineResult } from '../math/index.js';
 import type { NerdiClashGame } from '../rooms/NerdiClashGame.js';
-import { CardSchema, addToHand } from '../state/schema.js';
+import { CardSchema, FunctionBoardSchema, addToHand } from '../state/schema.js';
 
 /**
  * In-repo smoke coverage for the JSON bridge — the only transport the Godot
@@ -26,15 +26,25 @@ interface BridgeMessage {
 }
 
 interface SnapshotPlayer {
-  hand?: Array<{ id: string; cardType?: string }>;
-  boards?: Array<{ boardId: string }>;
+  hand?: Array<{ id: string; cardType?: string; subtype?: string }>;
+  boards?: Array<{ boardId: string; expression?: string; isActive?: boolean }>;
   isConnected?: boolean;
+  hp10?: number;
+  everGainedHP?: boolean;
+  trapSet?: boolean;
   [key: string]: unknown;
 }
 
 interface SnapshotState {
   phase?: string;
   currentTurnPlayerId?: string;
+  winner?: string;
+  winReason?: string;
+  forceEvalRequested?: boolean;
+  pendingAttackTargetId?: string;
+  pendingTriggerId?: string;
+  consecutive_no_eval_turns?: number;
+  global_no_eval_turns?: number;
   players?: Record<string, SnapshotPlayer>;
 }
 
@@ -105,6 +115,15 @@ class BridgeClient {
   /** Like waitFor but ignores the buffer — for state observed after an action. */
   waitForNext(pred: MessagePred, timeoutMs = 3000, label = 'message'): Promise<BridgeMessage> {
     return this.enqueue(pred, timeoutMs, label);
+  }
+
+  /** Remove and return every buffered message matching pred (non-matches stay). */
+  drain(pred: MessagePred): BridgeMessage[] {
+    const matches: BridgeMessage[] = [];
+    for (let i = this.received.length - 1; i >= 0; i -= 1) {
+      if (pred(this.received[i])) matches.unshift(...this.received.splice(i, 1));
+    }
+    return matches;
   }
 
   close(): Promise<void> {
@@ -863,6 +882,340 @@ describe('JsonBridgeServer', () => {
 
       const reset = await c1.waitFor(snapshotPhase('construction'), 3000, 'rematch construction');
       expect(Object.keys(snapshotState(reset).players ?? {})).toHaveLength(2);
+    });
+  });
+
+  /**
+   * Wave-12 T3: wire-level backfill for the paths that only the gitignored
+   * `server/*probe*.mjs` drivers ever exercised — eval success, the §8.5
+   * stalling showdown broadcast, an armed trap countering force_eval, and the
+   * dedicated `game_over` frame. Determinism comes from reaching bridge
+   * internals via the default-room `game` getter (same cast the serialization
+   * test uses): cards are moved out of the shuffled decks into hands and FSM
+   * counters/deadlines are set on `phaseController.fsm.state` (the mirror the
+   * schema reads), never on the schema copy.
+   */
+  describe('probe-parity gameplay', () => {
+    const gameEvent = (event: string): MessagePred =>
+      (msg) => msg.type === 'game_event' && msg.event === event;
+
+    const snapshotTurn = (phase: string, playerId: string): MessagePred =>
+      (msg) => isSnapshot(msg)
+        && snapshotState(msg).phase === phase
+        && snapshotState(msg).currentTurnPlayerId === playerId;
+
+    function liveGame(): NerdiClashGame {
+      const game = (bridge as unknown as { game?: NerdiClashGame }).game;
+      if (!game) throw new Error('default room has no live game');
+      return game;
+    }
+
+    /** Move a catalog card out of the player's decks into their hand. */
+    function seedHand(game: NerdiClashGame, sessionId: string, cardId: string): void {
+      const player = game.getPlayer(sessionId);
+      if (!player) throw new Error(`missing player ${sessionId}`);
+      if ([...player.hand].some((card) => card?.id === cardId)) return;
+      for (const pile of [player.deckFCC, player.deckNumber, player.deckAction]) {
+        const index = [...pile].findIndex((card) => card?.id === cardId);
+        if (index >= 0) {
+          const card = pile.splice(index, 1)[0];
+          if (card) addToHand(player, card);
+          return;
+        }
+      }
+      throw new Error(`card ${cardId} not in ${sessionId}'s decks`);
+    }
+
+    /** A second live board so a failed showdown nomination can't end the game. */
+    function addLiveBoard(game: NerdiClashGame, sessionId: string, expression: string): void {
+      const player = game.getPlayer(sessionId);
+      if (!player) throw new Error(`missing player ${sessionId}`);
+      const board = new FunctionBoardSchema();
+      board.boardId = `${sessionId}_board_extra`;
+      board.ownerSessionId = sessionId;
+      board.expression = expression;
+      board.domain = 'poly';
+      board.isActive = true;
+      player.boards.push(board);
+      player.boardCount = player.boards.length;
+    }
+
+    function setStalling(game: NerdiClashGame, consecutive: number, global: number): void {
+      game.phaseController.fsm.state.consecutive_no_eval_turns = consecutive;
+      game.phaseController.fsm.state.global_no_eval_turns = global;
+    }
+
+    /**
+     * Join a pair and drive them through construction into the play phase.
+     * The construction snapshot already names the first turn owner, so each
+     * side's expression is chosen by seat: `exprTurn` always lands on the
+     * player who holds turn 1.
+     */
+    async function driveToPlay(exprTurn: string, exprOff: string): Promise<{
+      turnClient: BridgeClient; offClient: BridgeClient; turnId: string; offId: string; offTok: string;
+    }> {
+      const { c1, c2, sid1, sid2, tok1, tok2 } = await joinTwoPlayers();
+      const conSnap = await c1.waitFor(snapshotPhase('construction'), 3000, 'construction snapshot');
+      const conState = snapshotState(conSnap);
+      const turnId = String(conState.currentTurnPlayerId);
+      const players = conState.players ?? {};
+      const exprFor = (sid: string): string => (sid === turnId ? exprTurn : exprOff);
+      for (const [client, sid] of [[c1, sid1], [c2, sid2]] as const) {
+        const boardId = players[sid]?.boards?.[0]?.boardId;
+        expect(boardId).toBeTruthy();
+        client.send({ type: 'build_function', boardId, expression: exprFor(sid) });
+      }
+      for (const client of [c1, c2]) {
+        const built = await client.waitFor(isResponse, 3000, 'build_function response');
+        expect(built).toMatchObject({ type: 'ack', intent: 'build_function' });
+      }
+
+      const turnClient = turnId === sid1 ? c1 : c2;
+      const offClient = turnId === sid1 ? c2 : c1;
+      const offId = turnId === sid1 ? sid2 : sid1;
+      const offTok = turnId === sid1 ? tok2 : tok1;
+      await drawToPlay(turnClient, turnId);
+      return { turnClient, offClient, turnId, offId, offTok };
+    }
+
+    /** On `sid`'s draw phase, take the 2-FCC draw and wait for their play phase. */
+    async function drawToPlay(client: BridgeClient, sid: string): Promise<void> {
+      await client.waitFor(snapshotTurn('draw', sid), 3000, 'draw snapshot');
+      client.send({ type: 'draw_cards', deckChoices: [{ deck: 'fcc', count: 2 }] });
+      const draw = await client.waitFor(isResponse, 3000, 'draw_cards response');
+      expect(draw).toMatchObject({ type: 'ack', intent: 'draw_cards' });
+      await client.waitFor(snapshotTurn('play', sid), 3000, 'play snapshot');
+    }
+
+    async function endTurn(client: BridgeClient): Promise<void> {
+      client.send({ type: 'end_turn' });
+      const resp = await client.waitFor(isResponse, 3000, 'end_turn response');
+      expect(resp).toMatchObject({ type: 'ack', intent: 'end_turn' });
+    }
+
+    function firstBoardId(state: SnapshotState, sid: string): string {
+      const boardId = state.players?.[sid]?.boards?.[0]?.boardId;
+      if (!boardId) throw new Error(`no board for ${sid}`);
+      return boardId;
+    }
+
+    it('eval_function consumes VVC + Eval card, clears the board, and lands HP', async () => {
+      // 'x*y + x' at vvc-1 (=2) → value 6, complexity 3 → hpGain10 = 10.
+      // Multi-var boards keep the isolation timer and stalling showdown away.
+      const { turnClient, offClient, turnId } = await driveToPlay('x*y + x', 'x + y');
+      const game = liveGame();
+      seedHand(game, turnId, 'act-eval-001');
+      // Seed a nonzero counter so the eval's reset is observable on the wire.
+      game.phaseController.fsm.state.consecutive_no_eval_turns = 2;
+
+      const playSnap = await turnClient.waitForNext(isSnapshot, 3000, 'play snapshot');
+      const boardId = firstBoardId(snapshotState(playSnap), turnId);
+      turnClient.send({ type: 'eval_function', boardId, variableValueCardId: 'vvc-1' });
+      const ack = await turnClient.waitFor(isResponse, 3000, 'eval_function response');
+      expect(ack).toMatchObject({ type: 'ack', intent: 'eval_function' });
+
+      for (const watcher of [turnClient, offClient]) {
+        const event = await watcher.waitFor(gameEvent('eval_function'), 3000, 'eval_function event');
+        expect(event.actorId).toBe(turnId);
+        expect(event.details).toMatchObject({ vvcCardId: 'vvc-1', hpGain10: 10 });
+      }
+
+      const own = snapshotState(await turnClient.waitForNext(isSnapshot, 3000, 'post-eval snapshot'));
+      const mine = own.players?.[turnId];
+      expect(mine?.hp10).toBe(10);
+      expect(mine?.everGainedHP).toBe(true);
+      expect(mine?.boards?.[0]?.expression).toBe('');
+      const handIds = (mine?.hand ?? []).map((card) => card.id);
+      expect(handIds).not.toContain('vvc-1');
+      expect(handIds).not.toContain('act-eval-001');
+      // A successful eval is an eval turn — the counter reset mirrors out now.
+      expect(own.consecutive_no_eval_turns).toBe(0);
+
+      await endTurn(turnClient);
+      const after = snapshotState(await turnClient.waitForNext(isSnapshot, 3000, 'post-turn snapshot'));
+      expect(after.consecutive_no_eval_turns).toBe(0);
+      expect(after.phase).toBe('draw');
+    });
+
+    it('broadcasts the §8.5 stalling force_eval to both clients on the 5th consecutive no-eval turn', async () => {
+      // 'x^3' vs 'x' tie at the fixed vvc=1 → failed nomination: the staller's
+      // main board is destroyed and hp10 halves; a spare board keeps the game
+      // alive so the counter semantics stay observable after the showdown.
+      const { turnClient, offClient, turnId, offId } = await driveToPlay('x^3', 'x');
+      const game = liveGame();
+      addLiveBoard(game, turnId, 'x+1');
+      const nominator = game.getPlayer(turnId);
+      const opponent = game.getPlayer(offId);
+      if (!nominator || !opponent) throw new Error('players missing');
+      nominator.hp10 = 100;
+      opponent.hp10 = 100;
+      setStalling(game, 4, 4);
+
+      await endTurn(turnClient);
+
+      for (const watcher of [turnClient, offClient]) {
+        const event = await watcher.waitFor(gameEvent('force_eval'), 3000, 'stalling force_eval event');
+        expect(event.actorId).toBe(turnId);
+        expect(event.details).toMatchObject({ trigger: 'stalling', counter: 'consecutive' });
+      }
+
+      const after = snapshotState(await offClient.waitForNext(isSnapshot, 3000, 'post-showdown snapshot'));
+      expect(after.consecutive_no_eval_turns).toBe(0);
+      expect(after.global_no_eval_turns).toBe(5);
+      expect(after.phase).toBe('draw');
+      expect(after.currentTurnPlayerId).toBe(offId);
+      const nom = after.players?.[turnId];
+      expect(nom?.hp10).toBe(50);
+      expect(nom?.boards?.[0]?.isActive).toBe(false);
+      expect(nom?.boards?.[1]?.isActive).toBe(true);
+    });
+
+    it('broadcasts trap_triggered and skips the showdown when an armed trap counters force_eval', async () => {
+      const { turnClient, offClient, turnId, offId } = await driveToPlay('x*y + x', 'x + y');
+      const game = liveGame();
+
+      // Turn 1: attacker passes quietly (consecutive counter → 1, far from 5).
+      await endTurn(turnClient);
+
+      // Turn 2: defender draws, then arms the catalog trap in their play phase.
+      await drawToPlay(offClient, offId);
+      seedHand(game, offId, 'act-trap-001');
+      offClient.send({ type: 'set_trap', cardId: 'act-trap-001' });
+      const trapped = await offClient.waitFor(isResponse, 3000, 'set_trap response');
+      expect(trapped).toMatchObject({ type: 'ack', intent: 'set_trap' });
+
+      // §16: the attacker's snapshot shows only the armed flag, never the card.
+      const armed = snapshotState(await turnClient.waitForNext(isSnapshot, 3000, 'post-trap snapshot'));
+      const defenderView = armed.players?.[offId];
+      expect(defenderView?.trapSet).toBe(true);
+      expect(defenderView).not.toHaveProperty('trapCardId');
+      await endTurn(offClient);
+
+      // Turn 3: the attacker's force_eval is countered before it can resolve.
+      await drawToPlay(turnClient, turnId);
+      seedHand(game, turnId, 'act-special-force-eval-001');
+      turnClient.send({ type: 'force_eval', variableValueCardId: 'vvc-1' });
+      const fe = await turnClient.waitFor(isResponse, 3000, 'force_eval response');
+      expect(fe).toMatchObject({ type: 'ack', intent: 'force_eval' });
+
+      for (const watcher of [turnClient, offClient]) {
+        const event = await watcher.waitFor(gameEvent('trap_triggered'), 3000, 'trap_triggered event');
+        expect(event.actorId).toBe(offId);
+        expect(event.details).toMatchObject({
+          trapCardId: 'act-trap-001',
+          countered: 'force_eval',
+          attackerId: turnId,
+        });
+        // Events precede the response on the wire and a full snapshot interval
+        // has elapsed — a showdown event would already be buffered if it existed.
+        await watcher.waitForNext(isSnapshot, 3000, 'post-counter snapshot');
+        expect(watcher.drain(gameEvent('force_eval'))).toEqual([]);
+      }
+
+      const settled = snapshotState(await turnClient.waitForNext(isSnapshot, 3000, 'settled snapshot'));
+      expect(settled.forceEvalRequested).toBe(false);
+      expect(settled.players?.[offId]?.trapSet).toBe(false);
+      const attackerHand = (settled.players?.[turnId]?.hand ?? []).map((card) => card.id);
+      expect(attackerHand).not.toContain('act-special-force-eval-001');
+      expect(attackerHand).not.toContain('vvc-1');
+    });
+
+    it('sends the dedicated game_over frame alongside the game_event when a winner is declared', async () => {
+      // vvc-4 (=10): 'x*y + x' → 110 strictly dominates 'x - y' → 0.
+      const { turnClient, offClient, turnId, offId } = await driveToPlay('x*y + x', 'x - y');
+      seedHand(liveGame(), turnId, 'act-special-force-eval-001');
+
+      turnClient.send({ type: 'force_eval', variableValueCardId: 'vvc-4' });
+      const ack = await turnClient.waitFor(isResponse, 3000, 'force_eval response');
+      expect(ack).toMatchObject({ type: 'ack', intent: 'force_eval' });
+
+      for (const watcher of [turnClient, offClient]) {
+        const cardPlay = await watcher.waitFor(gameEvent('force_eval'), 3000, 'force_eval event');
+        expect(cardPlay.actorId).toBe(turnId);
+        // Card-sourced, not stalling — no trigger field on a played Showdown.
+        expect(cardPlay.details).toMatchObject({ cardId: 'act-special-force-eval-001' });
+        expect(cardPlay.details).not.toMatchObject({ trigger: 'stalling' });
+
+        const over = await watcher.waitFor(gameEvent('game_over'), 3000, 'game_over event');
+        expect(over.details).toMatchObject({
+          winner: turnId,
+          loser: offId,
+          winReason: 'force_eval_domination',
+        });
+
+        const frame = await watcher.waitFor(ofType('game_over'), 3000, 'game_over frame');
+        expect(frame).toMatchObject({ winnerId: turnId, winReason: 'force_eval_domination' });
+      }
+
+      const over = snapshotState(await turnClient.waitForNext(isSnapshot, 3000, 'gameOver snapshot'));
+      expect(over.phase).toBe('gameOver');
+      expect(over.winner).toBe(turnId);
+      expect(over.winReason).toBe('force_eval_domination');
+
+      turnClient.send({ type: 'end_turn' });
+      const post = await turnClient.waitFor(isResponse, 3000, 'post-game end_turn response');
+      expect(post.type).toBe('error');
+      expect(post.code).toBe(ErrorCode.GAME_OVER);
+    });
+
+    it('replays defense_resumed to a defender who reclaims their seat mid-window', async () => {
+      const { turnClient, offClient, turnId, offId, offTok } = await driveToPlay('x*y + x', 'x + y');
+      const game = liveGame();
+      seedHand(game, turnId, 'act-offensive-001');
+
+      // A real attack defers damage and end_turn opens the defense window.
+      turnClient.send({
+        type: 'play_card',
+        cardId: 'act-offensive-001',
+        target: { kind: 'opp', id: offId },
+      });
+      const attack = await turnClient.waitFor(isResponse, 3000, 'play_card response');
+      expect(attack).toMatchObject({ type: 'ack', intent: 'play_card' });
+      await endTurn(turnClient);
+      const defense = await offClient.waitFor(snapshotPhase('defense'), 3000, 'defense snapshot');
+      expect(snapshotState(defense).pendingAttackTargetId).toBe(offId);
+
+      await offClient.close();
+
+      const { client: rejoined, msg } = await joinRoomWithRetry({
+        sessionId: offId,
+        reconnectToken: offTok,
+        displayName: 'tester',
+      });
+      expect(msg.type).toBe('joined');
+      expect(msg.sessionId).toBe(offId);
+
+      // The open window is replayed to the rejoining socket only — the
+      // attacker never sees a defense_resumed it can't act on.
+      const resumed = await rejoined.waitFor(gameEvent('defense_resumed'), 3000, 'defense_resumed event');
+      expect(resumed.details).toMatchObject({ deadline: expect.any(Number) });
+      const resynced = snapshotState(await rejoined.waitForNext(isSnapshot, 3000, 'resync snapshot'));
+      expect(resynced.phase).toBe('defense');
+      expect(resynced.pendingAttackTargetId).toBe(offId);
+      expect(Array.isArray(resynced.players?.[offId]?.hand)).toBe(true);
+
+      await turnClient.waitForNext(isSnapshot, 3000, 'attacker snapshot');
+      expect(turnClient.drain(gameEvent('defense_resumed'))).toEqual([]);
+    });
+
+    it('frames a winnerless game_over when construction is abandoned', async () => {
+      const { c1, c2 } = await joinTwoPlayers();
+      await c1.waitFor(snapshotPhase('construction'), 3000, 'construction snapshot');
+
+      // Expire the construction deadline on the FSM (the authoritative copy);
+      // the next 250ms bridge tick resolves the AFK abandonment.
+      liveGame().phaseController.fsm.state.turnDeadline = Date.now() - 1;
+
+      for (const watcher of [c1, c2]) {
+        const frame = await watcher.waitFor(ofType('game_over'), 3000, 'game_over frame');
+        expect(frame).toMatchObject({ winnerId: null, winReason: 'abandoned' });
+        const over = await watcher.waitFor(gameEvent('game_over'), 3000, 'game_over event');
+        expect(over.details).toMatchObject({ winner: null, winReason: 'abandoned' });
+      }
+
+      const over = snapshotState(await c1.waitForNext(isSnapshot, 3000, 'gameOver snapshot'));
+      expect(over.phase).toBe('gameOver');
+      expect(over.winner).toBeFalsy();
     });
   });
 });

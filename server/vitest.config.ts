@@ -5,15 +5,15 @@ export default defineConfig({
     coverage: {
       provider: 'v8',
       reporter: ['text'],
-      // Measured 2026-09-12 (wave-8 tail, 416 tests): 80.66 lines /
-      // 80.66 statements / 86.12 functions / 76.49 branches. Thresholds sit
-      // a few points under reality — raise them as coverage grows, never
-      // lower them to force a green run.
+      // Measured 2026-09-12 (wave-12 T3, 559 tests): 90.93 lines /
+      // 90.93 statements / 89.55 functions / 82.14 branches. Thresholds sit
+      // at the measured floor rounded down — raise them as coverage grows,
+      // never lower them to force a green run.
       thresholds: {
-        lines: 78,
-        statements: 78,
-        functions: 84,
-        branches: 74,
+        lines: 90,
+        statements: 90,
+        functions: 89,
+        branches: 82,
       },
     },
   },
