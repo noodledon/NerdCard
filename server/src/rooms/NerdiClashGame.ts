@@ -43,6 +43,18 @@ const ROUTED_PLAY_CARD_TYPES = new Set([
 ]);
 
 /**
+ * Rulebook §6 turn economy: at most two actions per play phase, on top of
+ * the existing one-aggressive-action lockout. A wire intent in this set —
+ * any routed play_card (trap-set included), set_trap, eval_function or
+ * force_eval — consumes one action when it resolves (ok:true), fizzles
+ * included: the card was spent, the action was used. Rejected intents
+ * (ok:false) never consume. draw_cards/build_function/play_defense/
+ * end_turn/ready_inst/leave_room never count — wrong phase or lifecycle.
+ */
+const ACTION_COUNTING_INTENTS = new Set(['play_card', 'set_trap', 'eval_function', 'force_eval']);
+const MAX_ACTIONS_PER_TURN = 2;
+
+/**
  * Core game logic for NerdiClash, transport-agnostic.
  *
  * This class owns all authoritative game state and rules. It knows nothing
@@ -230,6 +242,18 @@ export class NerdiClashGame {
       }
     }
 
+    // §6 two-action cap — after the winner/phase/ownership guards but before
+    // toCommandIntent, so a rejected or unrouted intent never burns an
+    // action. EvalCommand also permits Phase.resolution; an eval landing
+    // there is still this turn's economy (the counter only resets in
+    // requestEndTurn), so the cap counts — and can block — it here too.
+    if (ACTION_COUNTING_INTENTS.has(intent)) {
+      const player = this.state.players.get(sessionId);
+      if (player && player.actionsUsedThisTurn >= MAX_ACTIONS_PER_TURN) {
+        return { ok: false, reason: 'turn action limit reached' };
+      }
+    }
+
     const routed = this.toCommandIntent(sessionId, intent, payload);
     if (routed && 'ok' in routed) {
       return routed;
@@ -277,6 +301,13 @@ export class NerdiClashGame {
     }
     if (result.ok && !result.fizzled && (intent === 'eval_function' || intent === 'force_eval')) {
       this.phaseController.onEvalTurn();
+    }
+    // Spend one of the turn's two actions on any resolved action intent —
+    // fizzles included (the card was used). Validation failures (ok:false)
+    // don't consume.
+    if (result.ok && ACTION_COUNTING_INTENTS.has(intent)) {
+      const player = this.state.players.get(sessionId);
+      if (player) player.actionsUsedThisTurn += 1;
     }
     if (result.ok) this.runCheckWin();
     return result;
