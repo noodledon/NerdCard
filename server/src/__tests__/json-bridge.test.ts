@@ -1633,4 +1633,224 @@ describe('JsonBridgeServer', () => {
       expect(timersOf(after)).toEqual({});
     });
   });
+
+  /**
+   * Wave-13 M2: Classic Clash over the wire — "v1 minus the isolation win"
+   * (docs/game-modes.md §4.1). The hp_zero, force_eval_domination and
+   * board-wipe paths still declare in a CC room while
+   * variable_isolation_timers stays empty in every snapshot — and even a
+   * timer forced to 0 on the internals cannot kill. A same-shaped nerdiclash
+   * room is driven as the regression contrast. Tests join the default room
+   * with mode:'classic_clash' so the private `game` getter reaches the slot —
+   * the room name and the mode are independent.
+   */
+  describe('classic clash', () => {
+    const gameEvent = (event: string): MessagePred =>
+      (msg) => msg.type === 'game_event' && msg.event === event;
+    const snapshotTurn = (phase: string, playerId: string): MessagePred =>
+      (msg) => isSnapshot(msg)
+        && snapshotState(msg).phase === phase
+        && snapshotState(msg).currentTurnPlayerId === playerId;
+    const modeOf = (msg: BridgeMessage): unknown =>
+      (msg.state as { mode?: unknown } | undefined)?.mode;
+    const timersOf = (msg: BridgeMessage): Record<string, number> =>
+      ((msg.state as { variable_isolation_timers?: Record<string, number> } | undefined)
+        ?.variable_isolation_timers) ?? {};
+
+    function liveGame(): NerdiClashGame {
+      const game = (bridge as unknown as { game?: NerdiClashGame }).game;
+      if (!game) throw new Error('default room has no live game');
+      return game;
+    }
+
+    /** Move a catalog card out of the player's decks into their hand. */
+    function seedHand(game: NerdiClashGame, sessionId: string, cardId: string): void {
+      const player = game.getPlayer(sessionId);
+      if (!player) throw new Error(`missing player ${sessionId}`);
+      if ([...player.hand].some((card) => card?.id === cardId)) return;
+      for (const pile of [player.deckFCC, player.deckNumber, player.deckAction]) {
+        const index = [...pile].findIndex((card) => card?.id === cardId);
+        if (index >= 0) {
+          const card = pile.splice(index, 1)[0];
+          if (card) addToHand(player, card);
+          return;
+        }
+      }
+      throw new Error(`card ${cardId} not in ${sessionId}'s decks`);
+    }
+
+    /** Join a pair into the default room under Classic Clash. */
+    async function joinClassicClash(): Promise<{
+      c1: BridgeClient; c2: BridgeClient; sid1: string; sid2: string;
+    }> {
+      const c1 = await connect();
+      const j1 = await joinRoom(c1, { mode: 'classic_clash' });
+      expect(j1.type).toBe('joined');
+      expect(j1.mode).toBe('classic_clash');
+      const c2 = await connect();
+      const j2 = await joinRoom(c2, { mode: 'classic_clash' });
+      expect(j2.type).toBe('joined');
+      expect(j2.mode).toBe('classic_clash');
+      return { c1, c2, sid1: String(j1.sessionId), sid2: String(j2.sessionId) };
+    }
+
+    /**
+     * Both players submit their construction builds, then the turn owner
+     * draws into play. `exprTurn` lands on whoever holds turn 1.
+     */
+    async function driveToPlay(
+      c1: BridgeClient, c2: BridgeClient, sid1: string, sid2: string,
+      exprTurn: string, exprOff: string,
+    ): Promise<{ turnClient: BridgeClient; offClient: BridgeClient; turnId: string; offId: string }> {
+      const conSnap = await c1.waitFor(snapshotPhase('construction'), 3000, 'construction snapshot');
+      const conState = snapshotState(conSnap);
+      const turnId = String(conState.currentTurnPlayerId);
+      const players = conState.players ?? {};
+      for (const [client, sid] of [[c1, sid1], [c2, sid2]] as const) {
+        const boardId = players[sid]?.boards?.[0]?.boardId;
+        expect(boardId).toBeTruthy();
+        client.send({ type: 'build_function', boardId, expression: sid === turnId ? exprTurn : exprOff });
+      }
+      for (const client of [c1, c2]) {
+        const built = await client.waitFor(isResponse, 3000, 'build_function response');
+        expect(built).toMatchObject({ type: 'ack', intent: 'build_function' });
+      }
+
+      const turnClient = turnId === sid1 ? c1 : c2;
+      const offClient = turnId === sid1 ? c2 : c1;
+      const offId = turnId === sid1 ? sid2 : sid1;
+      await turnClient.waitFor(snapshotTurn('draw', turnId), 3000, 'draw snapshot');
+      turnClient.send({ type: 'draw_cards', deckChoices: [{ deck: 'fcc', count: 2 }] });
+      const draw = await turnClient.waitFor(isResponse, 3000, 'draw_cards response');
+      expect(draw).toMatchObject({ type: 'ack', intent: 'draw_cards' });
+      await turnClient.waitFor(snapshotTurn('play', turnId), 3000, 'play snapshot');
+      return { turnClient, offClient, turnId, offId };
+    }
+
+    async function endTurn(client: BridgeClient): Promise<void> {
+      client.send({ type: 'end_turn' });
+      const resp = await client.waitFor(isResponse, 3000, 'end_turn response');
+      expect(resp).toMatchObject({ type: 'ack', intent: 'end_turn' });
+    }
+
+    it('reaches an hp_zero win over the wire while isolation timers stay empty', async () => {
+      // The attacker builds a reduced board ('x') — the exact shape that
+      // ticks their own countdown in v1 — yet no snapshot ever carries a
+      // timer. Power Spike lands 50 against a 10-HP defender: hp_zero.
+      const { c1, c2, sid1, sid2 } = await joinClassicClash();
+      const { turnClient, offClient, turnId, offId } = await driveToPlay(c1, c2, sid1, sid2, 'x', 'x+y');
+      const game = liveGame();
+      seedHand(game, turnId, 'act-offensive-001');
+      const defender = game.getPlayer(offId);
+      if (!defender) throw new Error('defender missing');
+      defender.hp10 = 10;
+      defender.everGainedHP = true;
+
+      const pre = await turnClient.waitForNext(isSnapshot, 3000, 'pre-attack snapshot');
+      expect(modeOf(pre)).toBe('classic_clash');
+      expect(timersOf(pre)).toEqual({});
+
+      turnClient.send({
+        type: 'play_card',
+        cardId: 'act-offensive-001',
+        target: { kind: 'opp', id: offId },
+      });
+      const attack = await turnClient.waitFor(isResponse, 3000, 'play_card response');
+      expect(attack).toMatchObject({ type: 'ack', intent: 'play_card' });
+      await endTurn(turnClient);
+
+      const defense = await offClient.waitFor(snapshotPhase('defense'), 3000, 'defense snapshot');
+      expect(snapshotState(defense).pendingAttackTargetId).toBe(offId);
+      await endTurn(offClient); // defender pass — the hit lands
+
+      for (const watcher of [turnClient, offClient]) {
+        const over = await watcher.waitFor(gameEvent('game_over'), 3000, 'game_over event');
+        expect(over.details).toMatchObject({ winner: turnId, loser: offId, winReason: 'hp_zero' });
+        const frame = await watcher.waitFor(ofType('game_over'), 3000, 'game_over frame');
+        expect(frame).toMatchObject({ winnerId: turnId, winReason: 'hp_zero' });
+      }
+
+      const over = snapshotState(await turnClient.waitForNext(isSnapshot, 3000, 'gameOver snapshot'));
+      expect(over.phase).toBe('gameOver');
+      expect(over.winner).toBe(turnId);
+      expect(over.winReason).toBe('hp_zero');
+      expect(timersOf(await turnClient.waitForNext(isSnapshot, 3000, 'final snapshot'))).toEqual({});
+    });
+
+    it('lets an isolated player survive a forced timer-0 — and the same state kills on nerdiclash', async () => {
+      const { c1, c2, sid1, sid2 } = await joinClassicClash();
+      const { turnClient, offClient, turnId, offId } = await driveToPlay(c1, c2, sid1, sid2, 'x+y', 'x');
+
+      // Adversarial state: a live, expired timer entry on an isolated board.
+      // In CC checkWin's isolation branch is profile-gated before it reads
+      // the timer, so the entry is inert — the turn just passes.
+      liveGame().state.variable_isolation_timers.set(offId, 0);
+      await endTurn(turnClient);
+
+      const after = snapshotState(await offClient.waitForNext(isSnapshot, 3000, 'post-turn snapshot'));
+      expect(after.phase).toBe('draw');
+      expect(after.currentTurnPlayerId).toBe(offId);
+      expect(after.winner).toBeFalsy();
+      for (const watcher of [turnClient, offClient]) {
+        expect(watcher.drain(gameEvent('game_over'))).toEqual([]);
+        expect(watcher.drain(ofType('game_over'))).toEqual([]);
+      }
+    });
+
+    it('kills on the identical forced timer-0 on nerdiclash — v1 regression contrast', async () => {
+      // Default room, no mode field → the shipped profile. Same reduced
+      // board + forced expired timer the CC room above survives.
+      const { c1, c2, sid1, sid2 } = await joinTwoPlayers();
+      const { turnClient, offClient, turnId, offId } = await driveToPlay(c1, c2, sid1, sid2, 'x+y', 'x');
+
+      liveGame().state.variable_isolation_timers.set(offId, 0);
+      await endTurn(turnClient);
+
+      for (const watcher of [turnClient, offClient]) {
+        const over = await watcher.waitFor(gameEvent('game_over'), 3000, 'v1 game_over event');
+        expect(over.details).toMatchObject({ winner: turnId, loser: offId, winReason: 'variable_isolation' });
+        const frame = await watcher.waitFor(ofType('game_over'), 3000, 'v1 game_over frame');
+        expect(frame).toMatchObject({ winnerId: turnId, winReason: 'variable_isolation' });
+      }
+      const snap = snapshotState(await turnClient.waitForNext(isSnapshot, 3000, 'v1 gameOver snapshot'));
+      expect(snap.phase).toBe('gameOver');
+      expect(snap.winReason).toBe('variable_isolation');
+    });
+
+    it('still lands the board-wipe win when every defender board is dead', async () => {
+      const { c1, c2, sid1, sid2 } = await joinClassicClash();
+      const { turnClient, offClient, turnId, offId } = await driveToPlay(c1, c2, sid1, sid2, 'x+y', 'x*y');
+
+      const board = liveGame().getPlayer(offId)?.boards[0];
+      if (!board) throw new Error('defender board missing');
+      board.isActive = false;
+
+      await endTurn(turnClient);
+      const over = await offClient.waitFor(gameEvent('game_over'), 3000, 'game_over event');
+      expect(over.details).toMatchObject({ winner: turnId, loser: offId, winReason: 'singular_board' });
+      const snap = snapshotState(await turnClient.waitForNext(isSnapshot, 3000, 'gameOver snapshot'));
+      expect(snap.phase).toBe('gameOver');
+      expect(snap.winReason).toBe('singular_board');
+    });
+
+    it('still lands force_eval_domination — Showdown stays live in CC (OQ-9)', async () => {
+      // vvc-4 (=10): 'x*y + x' → 110 strictly dominates 'x - y' → 0.
+      const { c1, c2, sid1, sid2 } = await joinClassicClash();
+      const { turnClient, offClient, turnId, offId } = await driveToPlay(c1, c2, sid1, sid2, 'x*y + x', 'x - y');
+      seedHand(liveGame(), turnId, 'act-special-force-eval-001');
+
+      turnClient.send({ type: 'force_eval', variableValueCardId: 'vvc-4' });
+      const fe = await turnClient.waitFor(isResponse, 3000, 'force_eval response');
+      expect(fe).toMatchObject({ type: 'ack', intent: 'force_eval' });
+
+      for (const watcher of [turnClient, offClient]) {
+        const over = await watcher.waitFor(gameEvent('game_over'), 3000, 'game_over event');
+        expect(over.details).toMatchObject({ winner: turnId, loser: offId, winReason: 'force_eval_domination' });
+      }
+      const snap = snapshotState(await turnClient.waitForNext(isSnapshot, 3000, 'gameOver snapshot'));
+      expect(snap.phase).toBe('gameOver');
+      expect(snap.winReason).toBe('force_eval_domination');
+      expect(modeOf(await turnClient.waitForNext(isSnapshot, 3000, 'mode snapshot'))).toBe('classic_clash');
+    });
+  });
 });
