@@ -1065,8 +1065,11 @@ describe('JsonBridgeServer', () => {
       );
       expect(ev.actorId).toBe(sid1);
 
-      // One vote changes nothing: still gameOver.
-      const snap = await c1.waitForNext(isSnapshot, 3000, 'state_snapshot');
+      // One vote changes nothing: still gameOver. Filter by phase — a
+      // construction-phase frame broadcast just before joinFinishedGame's
+      // force-write can arrive late under suite load (waitForNext takes
+      // the next received frame, not the next generated one).
+      const snap = await c1.waitFor(snapshotPhase('gameOver'), 3000, 'gameOver snapshot');
       expect(snapshotState(snap).phase).toBe('gameOver');
     });
 
@@ -1101,7 +1104,9 @@ describe('JsonBridgeServer', () => {
       const resp = await c1.waitFor(isResponse, 3000, 'rematch response');
       expect(resp).toMatchObject({ type: 'ack', intent: 'rematch' });
 
-      const snap = await c1.waitForNext(isSnapshot, 3000, 'state_snapshot');
+      // Same stale-frame hazard as the single-vote test — wait for the
+      // gameOver phase, not the next received frame.
+      const snap = await c1.waitFor(snapshotPhase('gameOver'), 3000, 'gameOver snapshot');
       expect(snapshotState(snap).phase).toBe('gameOver');
 
       const { client: rejoined, msg } = await joinRoomWithRetry({ sessionId: sid2, reconnectToken: tok2 });
