@@ -1,12 +1,14 @@
 import { describe, expect, it } from 'vitest';
 import { AttackHpCommand } from '../../commands/AttackHpCommand.js';
+import { DrawCommand } from '../../commands/DrawCommand.js';
 import { EvalCommand } from '../../commands/EvalCommand.js';
 import { ForceEvalCommand } from '../../commands/ForceEvalCommand.js';
 import { PlayDefenseCommand } from '../../commands/PlayDefenseCommand.js';
 import { TrapCommand } from '../../commands/TrapCommand.js';
+import { evaluate } from '../../logic/evalEngine.js';
 import type { CommandContext, CommandState } from '../../commands/base.js';
 
-interface TestCard { id: string; cardType?: string; subtype?: string; value?: number; }
+interface TestCard { id: string; cardType?: string; subtype?: string; deckType?: string; value?: number; }
 
 function player(id: string, hand: TestCard[] = []) {
   return {
@@ -249,6 +251,21 @@ describe('trap semantics', () => {
   });
 
   it('requires an Anchor VVC for force eval', () => {
+    const p1 = player('p1', [
+      { id: 'force-1', cardType: 'forceEval' },
+      { id: 'not-an-anchor', cardType: 'offensive' },
+    ]);
+    const gameState = state([p1, player('p2')]);
+    const command = new ForceEvalCommand();
+    command.state = gameState;
+
+    const result = command.execute({ playerId: 'p1', cardId: 'force-1', vvcCardId: 'not-an-anchor' });
+
+    expect(result).toEqual({ ok: false, reason: 'valid variable-value card required' });
+    expect(gameState.forceEvalRequested).toBeUndefined();
+  });
+
+  it('rejects a vvcCardId the player does not hold', () => {
     const p1 = player('p1', [{ id: 'force-1', cardType: 'forceEval' }]);
     const gameState = state([p1, player('p2')]);
     const command = new ForceEvalCommand();
@@ -256,7 +273,7 @@ describe('trap semantics', () => {
 
     const result = command.execute({ playerId: 'p1', cardId: 'force-1', vvcCardId: 'missing' });
 
-    expect(result).toEqual({ ok: false, reason: 'valid variable-value card required' });
+    expect(result).toEqual({ ok: false, reason: "card missing is not in player's hand" });
     expect(gameState.forceEvalRequested).toBeUndefined();
   });
 });
@@ -335,5 +352,58 @@ describe('eval semantics', () => {
     expect(result).toEqual({ ok: true, fizzled: true });
     expect(p1.hand.map((card) => card.id)).toEqual(['vvc-1', 'eval-1']);
     expect(p1.discardGraveyard).toEqual([]);
+  });
+
+  it('floors hp10 at zero when a VVC -1 evaluation goes negative', () => {
+    const p1 = player('p1', [
+      { id: 'vvc-neg', subtype: 'Anchor', value: -1 },
+      { id: 'eval-1', subtype: 'Eval' },
+    ]);
+    p1.hp10 = 5;
+    p1.everGainedHP = true;
+    const gameState = state([p1, player('p2')]);
+    const command = new EvalCommand();
+    command.state = gameState;
+    command.roomRef = { evalEngine: { evaluate } }; // real engine, not a mock
+
+    const result = command.execute({ playerId: 'p1', boardIndex: 0, vvcCardId: 'vvc-neg' });
+
+    // 'x + y' at vvc -1 → value -2, complexity 1 → hpGain10 = -10.
+    expect(result).toEqual({ ok: true, hpGain10: -10 });
+    expect(p1.hp10).toBe(0); // 5 + (-10) clamped, never negative
+    expect(p1.discardGraveyard.map((card) => card.id)).toEqual(['vvc-neg', 'eval-1']);
+  });
+});
+
+describe('draw reshuffle', () => {
+  it('reshuffles only the emptied deck’s own cards from the shared graveyard', () => {
+    const graveyard: TestCard[] = [
+      { id: 'n1', deckType: 'number', subtype: 'Prime' },
+      { id: 'f1', deckType: 'fcc', subtype: 'Add Term' },
+      { id: 'a1', deckType: 'action', subtype: 'Offensive' },
+      { id: 'vvc-1', deckType: 'number', subtype: 'Anchor' },
+      { id: 'f2', deckType: 'fcc', subtype: 'Derivative' },
+    ];
+    const p1 = {
+      ...player('p1'),
+      hand: [] as TestCard[],
+      deckFCC: [] as TestCard[],
+      deckNumber: [{ id: 'n2', deckType: 'number', subtype: 'Prime' }] as TestCard[],
+      deckAction: [{ id: 'a2', deckType: 'action', subtype: 'Shield' }] as TestCard[],
+      discardGraveyard: graveyard,
+    };
+    const gameState = state([p1, player('p2')], 'draw');
+    const command = new DrawCommand();
+    command.state = gameState;
+
+    const result = command.execute({ playerId: 'p1', deck: 'fcc', count: 2 });
+
+    expect(result).toEqual({ ok: true, drawn: 2 });
+    expect(p1.hand.map((card) => card.id).sort()).toEqual(['f1', 'f2']);
+    // Number/action cards and the Anchor stay in the graveyard — the FCC
+    // pile must not absorb them.
+    expect(graveyard.map((card) => card.id)).toEqual(['n1', 'a1', 'vvc-1']);
+    expect(p1.deckNumber.map((card) => card.id)).toEqual(['n2']);
+    expect(p1.deckAction.map((card) => card.id)).toEqual(['a2']);
   });
 });

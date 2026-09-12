@@ -54,7 +54,7 @@ function addSpareBoard(game: NerdiClashGame, sessionId: string, expression: stri
 
 /** Take `sessionId` through draw → play → end_turn (one full turn). */
 async function passTurn(game: NerdiClashGame, sessionId: string): Promise<void> {
-  const drawn = await dispatch(game, sessionId, 'draw_cards', { deckChoices: [{ deck: 'fcc', count: 1 }] });
+  const drawn = await dispatch(game, sessionId, 'draw_cards', { deckChoices: [{ deck: 'fcc', count: 2 }] });
   expect(drawn.ok).toBe(true);
   expect(game.state.phase).toBe(Phase.play);
   expect(game.requestEndTurn(sessionId).ok).toBe(true);

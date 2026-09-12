@@ -342,6 +342,7 @@ export class JsonBridgeServer {
   private errorCodeFor(reason: string | undefined): string {
     if (reason?.includes('active player') || reason?.includes('defending player')) return ErrorCode.NOT_YOUR_TURN;
     if (reason?.includes('only in') || reason?.includes('phase')) return ErrorCode.NOT_PHASE_NOT_DRAW;
+    if (reason?.includes('deckChoices') || reason?.includes('invalid draw choices')) return ErrorCode.INVALID_PAYLOAD;
     if (reason?.includes('aggressive action')) return ErrorCode.OFFENSIVE_LIMIT_EXCEEDED;
     if (reason?.includes('not in player')) return ErrorCode.CARD_NOT_IN_HAND;
     if (reason?.includes('maximum') || reason?.includes('already used')) return ErrorCode.TOO_MANY_ACTIONS;

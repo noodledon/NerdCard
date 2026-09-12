@@ -15,9 +15,13 @@ export class DrawCommand extends GameCommand<DrawPayload> {
     if (!pile) return failure('deck unavailable');
     const graveyard = player.discardGraveyard ?? player.graveyard;
     if (!graveyard) return failure('graveyard unavailable');
+    // The graveyard is shared across decks: reshuffle only cards that belong
+    // to this pile (deckType matches the catalog 'fcc'/'number'/'action'
+    // strings). Anchors are opening hand resources and stay buried.
+    const accepts = (card: CommandCard) => card.deckType === deck && card.subtype !== 'Anchor';
     const drawn: CommandCard[] = [];
     for (let index = 0; index < Math.max(0, Math.floor(count)); index += 1) {
-      const result = drawFromDeck(pile, graveyard);
+      const result = drawFromDeck(pile, graveyard, Math.random, accepts);
       if (!result.ok) break;
       player.hand.push(result.card);
       drawn.push(result.card);

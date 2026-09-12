@@ -87,6 +87,7 @@ const WIN_REASON_LABELS: Dictionary = {
 	"force_eval_domination": "Force-eval domination",
 	"singular_board": "Board destroyed",
 	"undefined_integral_loss": "Undefined evaluation",
+	"abandoned": "Game abandoned",
 }
 
 ## Base captions for the three draw buttons — the armed deck gets a " ·1"

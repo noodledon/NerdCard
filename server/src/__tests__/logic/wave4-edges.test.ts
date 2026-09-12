@@ -20,6 +20,24 @@ describe('Wave 4 edge cases', () => {
     expect(graveyard).toEqual([]);
   });
 
+  it('(a2) reshuffles only cards the accepts predicate allows', () => {
+    const deck: number[] = [];
+    const graveyard = [1, 2, 3, 4];
+    const result = drawFromDeck(deck, graveyard, () => 0.5, (card) => card % 2 === 0);
+    expect(result.ok).toBe(true);
+    expect(deck).toHaveLength(1); // [2,4] shuffled in, one drawn
+    expect(graveyard).toEqual([1, 3]);
+  });
+
+  it('(a3) reports DECK_EMPTY when the graveyard holds no acceptable cards', () => {
+    const deck: number[] = [];
+    const graveyard = [1, 3, 5];
+    const result = drawFromDeck(deck, graveyard, Math.random, (card) => card % 2 === 0);
+    expect(result).toEqual({ ok: false, code: 'DECK_EMPTY' });
+    expect(deck).toEqual([]);
+    expect(graveyard).toEqual([1, 3, 5]);
+  });
+
   it('(g) exact double does not dominate', () => {
     const a = { id: 'A', hp10: 100, lastForceValue: 60, boards: [{}] };
     const b = { id: 'B', hp10: 100, lastForceValue: 30, boards: [{}] };

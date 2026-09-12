@@ -105,15 +105,10 @@ export function forceEval(
   );
 
   if (dominates) {
-    const redistributions: ForceEvalResult['redistributions'] = [];
-    for (const opponent of opponents) {
-      const transfer = Math.floor(opponent.hp10 / 2 / opponents.length) * 10;
-      opponent.hp10 = Math.max(0, opponent.hp10 - transfer);
-      nominator.hp10 += transfer;
-      redistributions.push({ from: opponent.id, to: nominator.id, hp10Transferred: transfer });
-    }
+    // Domination ends the game outright — no HP changes hands and no boards
+    // are destroyed (docs/gameplay-flow.md).
     state.consecutive_no_eval_turns = 0;
-    return { winner: nominator.id, nominatorBoardDestroyed: false, redistributions };
+    return { winner: nominator.id, nominatorBoardDestroyed: false, redistributions: [] };
   }
 
   const mainBoard = nominator.boards?.[0];

@@ -14,6 +14,7 @@ export interface CommandCard {
   id: string;
   cardType?: string;
   subtype?: string;
+  deckType?: string;
   numericValue?: string;
   value?: number;
   expressionPayload?: string;

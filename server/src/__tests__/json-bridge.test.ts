@@ -452,6 +452,91 @@ describe('JsonBridgeServer', () => {
   });
 
   /**
+   * Wave-10 T2: drive a joined pair through construction into the draw phase
+   * and report which client owns the turn.
+   */
+  async function driveToDraw(): Promise<{
+    turnClient: BridgeClient; offClient: BridgeClient; turnId: string;
+  }> {
+    const { c1, c2, sid1, sid2 } = await joinTwoPlayers();
+    const conSnap = await c1.waitFor(snapshotPhase('construction'), 3000, 'construction snapshot');
+    const players = snapshotState(conSnap).players ?? {};
+    const board1 = players[sid1]?.boards?.[0]?.boardId;
+    const board2 = players[sid2]?.boards?.[0]?.boardId;
+    c1.send({ type: 'build_function', boardId: board1, expression: 'x' });
+    c2.send({ type: 'build_function', boardId: board2, expression: 'x' });
+    await c1.waitFor(isResponse, 3000, 'build_function response');
+    await c2.waitFor(isResponse, 3000, 'build_function response');
+
+    const drawSnap = await c1.waitFor(snapshotPhase('draw'), 3000, 'draw snapshot');
+    const turnId = String(snapshotState(drawSnap).currentTurnPlayerId);
+    return {
+      turnClient: turnId === sid1 ? c1 : c2,
+      offClient: turnId === sid1 ? c2 : c1,
+      turnId,
+    };
+  }
+
+  it('rejects draw batches that do not total exactly 2 with INVALID_PAYLOAD', async () => {
+    const { turnClient } = await driveToDraw();
+
+    for (const deckChoices of [
+      [{ deck: 'fcc', count: 1 }],
+      [{ deck: 'fcc', count: 2 }, { deck: 'action', count: 2 }],
+      [{ deck: 'fcc', count: 2 }, { deck: 'number', count: 1 }],
+    ]) {
+      turnClient.send({ type: 'draw_cards', deckChoices });
+      const resp = await turnClient.waitFor(isResponse, 3000, 'draw_cards response');
+      expect(resp.type).toBe('error');
+      expect(resp.code).toBe(ErrorCode.INVALID_PAYLOAD);
+    }
+
+    // The exact-2 batch still works afterwards — nothing mutated.
+    turnClient.send({ type: 'draw_cards', deckChoices: [{ deck: 'action', count: 2 }] });
+    const draw = await turnClient.waitFor(isResponse, 3000, 'draw_cards response');
+    expect(draw).toMatchObject({ type: 'ack', intent: 'draw_cards' });
+  });
+
+  it('surfaces NOT_YOUR_TURN for an off-turn end_turn and NOT_PHASE_NOT_DRAW in draw', async () => {
+    const { turnClient, offClient } = await driveToDraw();
+
+    // Draw phase: even the turn owner can't end a turn that hasn't started —
+    // the phase check precedes the owner check, matching the handler order.
+    turnClient.send({ type: 'end_turn' });
+    const wrongPhase = await turnClient.waitFor(isResponse, 3000, 'end_turn response');
+    expect(wrongPhase.type).toBe('error');
+    expect(wrongPhase.code).toBe(ErrorCode.NOT_PHASE_NOT_DRAW);
+
+    turnClient.send({ type: 'draw_cards', deckChoices: [{ deck: 'action', count: 2 }] });
+    await turnClient.waitFor(isResponse, 3000, 'draw_cards response');
+    await offClient.waitFor(snapshotPhase('play'), 3000, 'play snapshot');
+
+    offClient.send({ type: 'end_turn' });
+    const offResp = await offClient.waitFor(isResponse, 3000, 'end_turn response');
+    expect(offResp.type).toBe('error');
+    expect(offResp.code).toBe(ErrorCode.NOT_YOUR_TURN);
+  });
+
+  it('rejects a build_function rewrite of a live board during play', async () => {
+    const { turnClient, offClient, turnId } = await driveToDraw();
+
+    turnClient.send({ type: 'draw_cards', deckChoices: [{ deck: 'action', count: 2 }] });
+    await turnClient.waitFor(isResponse, 3000, 'draw_cards response');
+    const playSnap = await turnClient.waitFor(snapshotPhase('play'), 3000, 'play snapshot');
+    const players = snapshotState(playSnap).players ?? {};
+    const turnBoard = players[turnId]?.boards?.[0]?.boardId;
+
+    turnClient.send({ type: 'build_function', boardId: turnBoard, expression: 'x*y*z' });
+    const resp = await turnClient.waitFor(isResponse, 3000, 'build_function response');
+    expect(resp.type).toBe('error');
+
+    const next = await offClient.waitForNext(isSnapshot, 3000, 'state_snapshot');
+    expect(snapshotState(next).players?.[turnId]?.boards?.[0]).toMatchObject({
+      boardId: turnBoard, expression: 'x',
+    });
+  });
+
+  /**
    * Wave-10 T4: intents and ticks share one FIFO lane. With the math engine
    * stalled mid-`play_card`, neither a following `end_turn` nor an expired
    * play deadline (which the 250ms interval tick would otherwise consume)

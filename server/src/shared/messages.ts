@@ -125,7 +125,7 @@ export const TrapTriggeredSchema = z.object({
 export const GameOverSchema = z.object({
   type: z.literal('game_over'),
   winnerId: z.string().nullable(),
-  winReason: z.enum(['hp_zero', 'variable_isolation', 'force_eval_domination', 'singular_board', 'undefined_integral_loss']).nullable(),
+  winReason: z.enum(['hp_zero', 'variable_isolation', 'force_eval_domination', 'singular_board', 'undefined_integral_loss', 'abandoned']).nullable(),
 });
 
 export const ServerErrorSchema = z.object({

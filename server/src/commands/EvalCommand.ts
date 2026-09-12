@@ -12,10 +12,11 @@ export class EvalCommand extends GameCommand<EvalPayload> {
     const player = getPlayer(state, playerId);
     if (!player) return failure('player not found');
     const vvc = findCard(player, vvcCardId);
+    if (!vvc) return failure(`card ${vvcCardId} is not in player's hand`);
     // Catalog VVCs (server/src/data/card-catalog.json, ids vvc-1..vvc-5) carry
     // subtype "Anchor" — this previously compared against the non-existent
     // string 'variable-value', making eval_function unreachable. See report.md.
-    if (!vvc || vvc.subtype !== 'Anchor') return failure('valid variable-value card required');
+    if (vvc.subtype !== 'Anchor') return failure('valid variable-value card required');
     const evalCard = findCardBySubtype(player, 'Eval');
     if (!evalCard) return failure('requires an Evaluate card');
     const board = findBoard(player, undefined, boardIndex);
@@ -42,7 +43,8 @@ export class EvalCommand extends GameCommand<EvalPayload> {
       });
       return success({ boardDestroyed: true });
     }
-    player.hp10 += Math.floor(result.hpGain10);
+    // Floor at 0 — a negative evaluation must not drive HP below zero.
+    player.hp10 = Math.max(0, player.hp10 + Math.floor(result.hpGain10));
     if (result.hpGain10 > 0) player.everGainedHP = true;
     player.evaluatedThisTurn = true;
     moveCardToGraveyard(player, vvcCardId);

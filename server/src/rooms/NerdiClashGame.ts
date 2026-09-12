@@ -169,6 +169,9 @@ export class NerdiClashGame {
     } else if (previousPhase === Phase.resolution && phase === Phase.draw) {
       this.rotateTurnOwner();
     }
+    if (fsmEvents.includes('game-over')) {
+      this.resolveConstructionAbandonment();
+    }
     this.runCheckWin();
   }
 
@@ -179,7 +182,10 @@ export class NerdiClashGame {
   // ─── Intent dispatch ───────────────────────────────────────────────────────
 
   dispatchIntent(sessionId: string, intent: string, payload: Record<string, unknown>): CommandResult | Promise<CommandResult> {
-    if (this.state.winner) {
+    // gameOver without a winner (abandoned construction) must also refuse
+    // intents — every per-intent phase check would reject anyway, but the
+    // reason should say the game is over, not misreport the phase.
+    if (this.state.winner || this.state.phase === Phase.gameOver) {
       return { ok: false, reason: 'game is over' };
     }
 
@@ -188,12 +194,20 @@ export class NerdiClashGame {
     }
 
     if (intent === 'draw_cards') {
-      if (this.state.phase !== Phase.draw || sessionId !== this.state.currentTurnPlayerId) {
-        return { ok: false, reason: 'not your draw phase' };
+      if (this.state.phase !== Phase.draw) {
+        return { ok: false, reason: 'draw_cards only in draw phase' };
+      }
+      if (sessionId !== this.state.currentTurnPlayerId) {
+        return { ok: false, reason: 'not the active player' };
       }
       const choices = this.readDrawChoices(payload);
       if (!choices) {
         return { ok: false, reason: 'invalid draw choices' };
+      }
+      // handlers.ts drawChoiceTotal parity: the batch must total exactly 2.
+      const drawTotal = choices.reduce((sum, choice) => sum + choice.count, 0);
+      if (drawTotal !== 2) {
+        return { ok: false, reason: 'deckChoices must draw exactly 2 cards' };
       }
       for (const choice of choices) {
         const result = this.dispatchCommand({
@@ -216,6 +230,33 @@ export class NerdiClashGame {
     // Authority backstop: the Colyseus handlers run these checks early
     // (handlers.ts), but the JSON bridge calls dispatchIntent directly, so
     // turn/defender ownership is enforced here where both transports share it.
+    //
+    // Handler → shared-path parity matrix (wave-10 T2 audit):
+    //   parsePayload (Zod)      → parseClientMessage — same Zod schemas, bridge-side
+    //   requirePhase            → checks below + each command's phaseAllowed
+    //   requireTurnOwner        → currentTurnPlayerId checks below / requestEndTurn
+    //   requireCard             → toCommandIntent hand lookup (play_card) /
+    //                             requiredCard + 'not in player's hand' in commands
+    //   requireBoard (isActive) → command findBoard + isBoardAlive — eval on a dead
+    //                             board intentionally fizzles instead of erroring
+    //   requireTarget           → toCommandIntent target-kind + self-target guards;
+    //                             commands re-validate resolved ids
+    //   requirePendingTrigger   → pendingTriggerId match below (after a resolved
+    //                             defense the phase has left defense, which
+    //                             subsumes the handler's defenseResponseUsed check)
+    //   drawChoiceTotal === 2   → exact-2 sum check in the draw_cards branch
+    //   end_turn defender pass  → requestEndTurn's defenderPassing branch
+    if (intent === 'build_function') {
+      // Parity with handlers.ts: construction takes simultaneous builds from
+      // both players; in play only the turn owner may rebuild a wiped board
+      // (BuildFunctionCommand enforces the empty-expression rule itself).
+      if (this.state.phase !== Phase.construction && this.state.phase !== Phase.play) {
+        return { ok: false, reason: 'build_function only in construction or play phase' };
+      }
+      if (this.state.phase === Phase.play && sessionId !== this.state.currentTurnPlayerId) {
+        return { ok: false, reason: 'not the active player' };
+      }
+    }
     if (
       intent === 'play_card'
       || intent === 'set_trap'
@@ -285,6 +326,10 @@ export class NerdiClashGame {
       if (!submission.ok) {
         return { ok: false, reason: submission.reason ?? 'build_function rejected by phase' };
       }
+      // The submission gate owns the write during construction — the command
+      // stayed write-free so a rejected intent mutates nothing.
+      if (board) board.expression = String(payload.expression);
+      this.emitGameEvent('build_function', sessionId, { boardId: String(payload.boardId) });
     }
     if (result.ok && intent === 'play_defense') {
       // PlayDefenseCommand already zeroed the pending damage for a successful
@@ -608,6 +653,24 @@ export class NerdiClashGame {
   }
 
   /**
+   * Construction deadline elapsed with incomplete submissions — the FSM's
+   * AFK safeguard already moved the game to gameOver. A lone submitter wins
+   * by abandonment; with zero submissions the game ends a documented draw
+   * (phase gameOver, no winner, winReason 'abandoned').
+   */
+  private resolveConstructionAbandonment(): void {
+    const submissions = this.phaseController.fsm.state.buildSubmissions;
+    const submitter = [...this.state.players.keys()].find((id) => submissions?.get(id) === true);
+    if (submitter) {
+      const loser = [...this.state.players.keys()].find((id) => id !== submitter);
+      this.declareWinner(submitter, loser, 'abandoned');
+      return;
+    }
+    this.state.winReason = 'abandoned';
+    this.emitGameEvent('game_over', '', { winner: null, loser: '', winReason: 'abandoned' });
+  }
+
+  /**
    * Single point where state.winner flips unset→set. Both runCheckWin and
    * runForceEval funnel here so the 'game_over' game_event fires exactly
    * once per game; transports translate it into their wire frame.
@@ -772,8 +835,11 @@ export class NerdiClashGame {
         const cardId = typeof payload.cardId === 'string' ? payload.cardId : undefined;
         if (!cardId) return undefined;
         const player = this.state.players.get(playerId);
-        const card = player ? [...player.hand].find((candidate) => candidate?.id === cardId) : undefined;
-        if (!player || !card) return undefined;
+        if (!player) return undefined;
+        const card = [...player.hand].find((candidate) => candidate?.id === cardId);
+        // handlers.ts requireCard parity: a card the player doesn't hold is a
+        // CARD_NOT_IN_HAND rejection, not a routing miss.
+        if (!card) return { ok: false, reason: `card ${cardId} is not in player's hand` };
 
         const targetId = typeof target.id === 'string' ? target.id : undefined;
         // 'opp' must name an opponent and 'opp_board' a board an opponent owns —
@@ -952,6 +1018,8 @@ export class NerdiClashGame {
         (choice.deck !== 'fcc' && choice.deck !== 'number' && choice.deck !== 'action')
         || typeof choice.count !== 'number'
         || !Number.isInteger(choice.count)
+        || choice.count < 1
+        || choice.count > 2
       ) {
         return undefined;
       }
