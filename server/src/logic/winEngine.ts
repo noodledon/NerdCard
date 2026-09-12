@@ -20,7 +20,6 @@ export interface WinPlayer {
 export interface WinState {
   players: Iterable<WinPlayer>;
   variableIsolationTimers?: Map<string, number> | Record<string, number>;
-  lastForceEvalWinner?: string;
 }
 
 export interface WinResult {
@@ -43,11 +42,6 @@ function opponentId(players: WinPlayer[], loserId: string): string | undefined {
 export function checkWin(state: WinState): WinResult {
   const players = [...state.players];
   const base: WinResult = { destroyedPlayerBoards: [] };
-
-  if (state.lastForceEvalWinner) {
-    const loser = players.find((player) => player.id !== state.lastForceEvalWinner)?.id;
-    return { ...base, winner: state.lastForceEvalWinner, loser, reason: 'force-dom' };
-  }
 
   for (const player of players) {
     if (player.everGainedHP === true && player.hp10 <= 0) {

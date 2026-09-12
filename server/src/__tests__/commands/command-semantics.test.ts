@@ -336,7 +336,7 @@ describe('eval semantics', () => {
     expect(p1.discardGraveyard.map((card) => card.id)).toEqual(['vvc-1', 'eval-1']);
   });
 
-  it('keeps both cards when the eval fizzles on a dead board', () => {
+  it('spends both cards when the eval fizzles on a dead board', () => {
     const p1 = player('p1', [
       { id: 'vvc-1', subtype: 'Anchor', value: 2 },
       { id: 'eval-1', subtype: 'Eval' },
@@ -350,8 +350,8 @@ describe('eval semantics', () => {
     const result = command.execute({ playerId: 'p1', boardIndex: 0, vvcCardId: 'vvc-1' });
 
     expect(result).toEqual({ ok: true, fizzled: true });
-    expect(p1.hand.map((card) => card.id)).toEqual(['vvc-1', 'eval-1']);
-    expect(p1.discardGraveyard).toEqual([]);
+    expect(p1.hand).toEqual([]);
+    expect(p1.discardGraveyard.map((card) => card.id)).toEqual(['vvc-1', 'eval-1']);
   });
 
   it('floors hp10 at zero when a VVC -1 evaluation goes negative', () => {

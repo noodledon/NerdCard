@@ -21,6 +21,10 @@ export class EvalCommand extends GameCommand<EvalPayload> {
     if (!evalCard) return failure('requires an Evaluate card');
     const board = findBoard(player, undefined, boardIndex);
     if (!board || !isBoardAlive(board)) {
+      // Fizzle still spends the cards — documented v1 (gameplay-flow.md):
+      // a card that targets a destroyed board goes to the graveyard.
+      moveCardToGraveyard(player, vvcCardId);
+      moveCardToGraveyard(player, evalCard.id);
       this.context()?.emitGameEvent?.('fizzle', playerId, {
         source: 'eval_function',
         vvcCardId,

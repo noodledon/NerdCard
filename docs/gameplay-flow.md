@@ -65,7 +65,7 @@ Players draw from three separate decks during the game:
 
 | Deck | Contains | Example Cards |
 |------|----------|---------------|
-| **FCC Deck** | Function Component Cards — building blocks for functions | Add Term, Derivative, Integral (stubbed), Limit (stubbed), Modular, Vector, Matrix, Transform, Eigenvalue |
+| **FCC Deck** | Function Component Cards — building blocks for functions | Add Term, Derivative, Integral*, Limit*, Modular, Vector, Matrix, Transform, Eigenvalue — all ten playable (*Integral/Limit route through the optional SymPy service) |
 | **Number Deck** | Constants and arithmetic operators | 2, 3, 5, π, e, √2, φ |
 | **Action Deck** | Offensive, defensive, trap, spell, theorem, special cards | Offensive ("Divide by 2"), Shield (ln protects against e), Trap (snarecoded), Martial Theorem (Chaos Theory rearranges opponent's terms), Artifact Theorem (Realist blocks imaginary terms), Add Board, Composition, Force Evaluation, Evaluate |
 
@@ -113,7 +113,7 @@ Players alternate turns. Each turn has **4 phases**:
 
 ### Function Component Cards (FCCs)
 - **Add Term Cards** — Add terms to your function (must comply with your domain)
-- **Calculus FCCs** — Differentiation (works), Integration (stubbed), Limit (stubbed), Continuity (stubbed)
+- **Calculus FCCs** — Differentiation, Integration*, Limit* (*via the optional SymPy service; default math.js engine fizzles them), Continuity (deferred — no catalog card)
 - **Number Theory FCCs** — Modular arithmetic, prime factor manipulation, theorems (Fermat's, Euler's)
 - **Linear Algebra FCCs** — Vector/matrix operations, linear transformations, rank/eigenvalue manipulations
 
@@ -292,14 +292,16 @@ The v1 catalog is **frozen** — no additions during development. It spans every
 |---|------|-------------|
 | 1 | Term Surge | Add Term |
 | 2 | Flux Delta | Derivative |
-| 3 | Anti-Flux | Integral (STUBBED) |
-| 4 | Limit Break | Limit (STUBBED) |
+| 3 | Anti-Flux | Integral (SymPy service) |
+| 4 | Limit Break | Limit (SymPy service) |
 | 5 | Mod Cage | Modular Arithmetic |
 | 6 | Fermat Echo | Number Theory Theorem |
 | 7 | Vector Shift | Vector op |
 | 8 | Matrix Weave | Matrix op |
 | 9 | Transform Lens | Linear Transform |
 | 10 | Eigen Lance | Eigenvalue |
+
+All ten FCCs route to live commands as of wave 8 — the last six (Mod Cage through Eigen Lance) were wired in wave-8 T2/T3.
 
 ### Action Cards (9)
 | # | Card | Effect |
@@ -450,9 +452,9 @@ math.js has no native function to count "distinct variable terms" or "nested com
 
 ---
 
-## 19. SymPy Operations — Stubbed for v1
+## 19. SymPy Operations — optional service
 
-The "Full math domain" scope includes calculus/number theory/linear algebra. But math.js can't do everything. These operations are **stubbed** (returning `{ supported: false, reason: "Not implemented in v1" }`) and deferred to a Python/SymPy microservice post-MVP:
+The "Full math domain" scope includes calculus/number theory/linear algebra. math.js can't do everything, so five operations route to the optional Python/SymPy FastAPI service when `USE_SYMPY=true` (`SYMPY_URL`, default `http://localhost:2569`). On the default math.js engine they return `{ supported: false }` and the card fizzles:
 
 | Operation | Status | Reason |
 |-----------|--------|--------|
@@ -461,10 +463,11 @@ The "Full math domain" scope includes calculus/number theory/linear algebra. But
 | Matrix: determinant, inverse, SVD, LU, QR | ✅ Working | math.js supports |
 | Complex numbers (full) | ✅ Working | math.js supports |
 | gcd, lcm, mod, isPrime | ✅ Working | math.js supports |
-| **Symbolic Integration** | ⏳ STUBBED | math.js issue #442 open since 2015 |
-| **Limit Evaluation** | ⏳ STUBBED | Not in math.js roadmap |
-| **RREF (Reduced Row Echelon Form)** | ⏳ STUBBED | Not available in math.js |
-| **Rank** | ⏳ STUBBED | Undocumented in math.js |
+| **Symbolic Integration** | 🔌 SymPy service | math.js issue #442 open since 2015 |
+| **Limit Evaluation** | 🔌 SymPy service | Not in math.js roadmap |
+| **Continuity check** | 🔌 SymPy service | engine-level op; no catalog card |
+| **RREF (Reduced Row Echelon Form)** | 🔌 SymPy service | Not available in math.js |
+| **Rank** | 🔌 SymPy service | Undocumented in math.js |
 
 A "Math Engine Capability Matrix" document is part of the plan deliverables — it tracks green/yellow/red per operation.
 
