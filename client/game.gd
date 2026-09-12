@@ -814,20 +814,17 @@ func _update_action_button_states(local_player: Dictionary) -> void:
 			has_eval_card = true
 			break
 
-	## No `has_eval_legal` field exists anywhere on the server (schema,
-	## protocol, or commands — verified via CodeGraph). The wave-5 plan
-	## assumes the server sets this boolean; it does not. Compensating
-	## client-side: Evaluate is visible whenever local player has an active
-	## board to evaluate, matching EvalCommand's actual phase/board checks.
-	## eval_function additionally consumes an 'Eval'-subtype action card, so
-	## the button spells out whichever prerequisite is missing.
-	## See report.md "Wave 5 inconsistencies".
+	## evalLegal/drawsRemaining are server-computed advisory flags on the
+	## local player's own snapshot entry (wave-10 T6) — they only gate the
+	## UI; the server still validates every intent. evalLegal already
+	## encodes play-phase + turn-owner + live-board + Anchor + Eval-card;
+	## the label below still reads the local hand only to explain which
+	## prerequisite is missing.
+	var eval_legal: bool = bool(local_player.get("evalLegal", false))
 	evaluate_button.visible = has_active_board
 	evaluate_button.disabled = (
-		not is_local_turn
-		or phase != "play"
+		not eval_legal
 		or GameModel.selected_variable_value_card_id == ""
-		or not has_eval_card
 	)
 	if not has_eval_card:
 		evaluate_button.text = "Needs Evaluate card"
@@ -836,7 +833,9 @@ func _update_action_button_states(local_player: Dictionary) -> void:
 	else:
 		evaluate_button.text = "Evaluate"
 
-	var can_draw: bool = is_local_turn and phase == "draw"
+	## drawsRemaining is 2 while the local draw step is open, 0 otherwise.
+	var draws_remaining: int = int(local_player.get("drawsRemaining", 0))
+	var can_draw: bool = phase == "draw" and draws_remaining > 0
 	draw_fcc_button.disabled = not can_draw
 	draw_number_button.disabled = not can_draw
 	draw_action_button.disabled = not can_draw

@@ -10,12 +10,11 @@
 ##   GameModel.state.players["p1"].hp10
 ##   GameModel.state.phase
 ##
-## The one exception is `hasEvalLegal` / `drawsThisTurn`, which the wave-5
-## task file assumes exist on the wire as `has_eval_legal` /
-## `draws_this_turn`. As of this Wave 5 implementation those fields do NOT
-## exist anywhere in the server schema, protocol, or commands (verified via
-## CodeGraph across server/src). See report.md "Wave 5 inconsistencies" for
-## the client-side compensation used instead.
+## Wave-10 T6 added server-computed advisory flags on the local player's own
+## snapshot entry: `evalLegal` (own play turn + live board + Anchor + Eval
+## card held) and `drawsRemaining` (2 during the own draw step, else 0). They
+## gate UI buttons only — the server still validates every intent — and are
+## never present on the opponent's entry (they encode private hand contents).
 
 extends Node
 

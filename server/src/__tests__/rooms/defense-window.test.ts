@@ -535,4 +535,64 @@ describe('state snapshot additions', () => {
       expect(card.name.length).toBeGreaterThan(0);
     }
   });
+
+  // Wave-10 T6: advisory client-truth flags — server-computed legality so the
+  // dumb client stops approximating. evalLegal encodes private hand contents
+  // (Anchor + Eval presence), so opponent entries never carry the flags.
+  it('exposes evalLegal/drawsRemaining on the viewer entry, hidden from opponents', async () => {
+    const game = await gameInPlay(); // play phase, p1's turn
+    giveCard(game, 'p1', 'act-eval-001'); // subtype 'Eval'
+
+    const forP1 = game.getStateSnapshotForPlayer('p1');
+    const p1View = forP1.players as Record<string, Record<string, unknown>>;
+    expect(p1View.p1?.evalLegal).toBe(true);
+    expect(p1View.p1?.drawsRemaining).toBe(0);
+    expect(p1View.p2?.evalLegal).toBeUndefined();
+    expect(p1View.p2?.drawsRemaining).toBeUndefined();
+
+    // p2's own flag is false even with a live board and Anchors — it isn't
+    // their play turn (they hold no Eval card either way).
+    const forP2 = game.getStateSnapshotForPlayer('p2');
+    const p2View = forP2.players as Record<string, Record<string, unknown>>;
+    expect(p2View.p2?.evalLegal).toBe(false);
+    expect(p2View.p1?.evalLegal).toBeUndefined();
+    expect(p2View.p1?.drawsRemaining).toBeUndefined();
+  });
+
+  it('reports evalLegal false without an Eval card or a live board', async () => {
+    const game = await gameInPlay();
+    const p1Entry = () =>
+      (game.getStateSnapshotForPlayer('p1').players as Record<string, Record<string, unknown>>).p1;
+
+    // Anchors + live board + turn owner, but no 'Eval'-subtype card in hand.
+    expect(p1Entry()?.evalLegal).toBe(false);
+
+    giveCard(game, 'p1', 'act-eval-001');
+    expect(p1Entry()?.evalLegal).toBe(true);
+
+    // A dead board drops the flag again even with both cards held.
+    const board = requirePlayer(game, 'p1').boards[0];
+    if (!board) throw new Error('missing board');
+    board.isActive = false;
+    expect(p1Entry()?.evalLegal).toBe(false);
+  });
+
+  it('reports drawsRemaining 2 only during the viewer\'s own draw step', async () => {
+    const game = new NerdiClashGame();
+    game.addPlayer('p1', 'Player One');
+    game.addPlayer('p2', 'Player Two');
+    game.startGame();
+    await dispatch(game, 'p1', 'build_function', { boardId: boardIdFor(game, 'p1'), expression: 'x^2' });
+    await dispatch(game, 'p2', 'build_function', { boardId: boardIdFor(game, 'p2'), expression: 'x^2' });
+    expect(game.state.phase).toBe(Phase.draw);
+
+    const p1View = game.getStateSnapshotForPlayer('p1').players as Record<string, Record<string, unknown>>;
+    expect(p1View.p1?.drawsRemaining).toBe(2);
+    expect(p1View.p2?.drawsRemaining).toBeUndefined();
+
+    // p2's own entry honestly reports 0 — the draw step belongs to p1.
+    const p2View = game.getStateSnapshotForPlayer('p2').players as Record<string, Record<string, unknown>>;
+    expect(p2View.p2?.drawsRemaining).toBe(0);
+    expect(p2View.p1?.drawsRemaining).toBeUndefined();
+  });
 });

@@ -480,6 +480,11 @@ export class NerdiClashGame {
             evaluatedThisTurn: player.evaluatedThisTurn,
             actionsUsedThisTurn: player.actionsUsedThisTurn,
             artifactTheoremActive: player.artifactTheoremActive,
+            // Wave-10 T6 advisory flags — computed for every entry here and
+            // stripped from opponent entries in getStateSnapshotForPlayer
+            // (evalLegal encodes private hand contents).
+            evalLegal: this.isEvalLegalFor(player),
+            drawsRemaining: this.drawsRemainingFor(player),
             deckCounts: {
               fcc: player.deckFCC.length,
               number: player.deckNumber.length,
@@ -508,12 +513,48 @@ export class NerdiClashGame {
         // id for a boolean so the UI can still show "trap armed".
         playerData.trapSet = typeof playerData.trapCardId === 'string' && playerData.trapCardId !== '';
         delete playerData.trapCardId;
+        // Wave-10 T6: the advisory flags are viewer-scoped — evalLegal reveals
+        // whether the holder has Anchor+Eval cards in hand, so an opponent's
+        // copy must not carry it (§16 privacy). Flags derive only from the
+        // viewer's own visible state.
+        delete playerData.evalLegal;
+        delete playerData.drawsRemaining;
       }
     }
     return base;
   }
 
   // ─── Private helpers ───────────────────────────────────────────────────────
+
+  /**
+   * Wave-10 T6 client-truth flag: mirrors what dispatchIntent + EvalCommand
+   * actually require for eval_function — the player's own play-phase turn, a
+   * live board (EvalCommand's isBoardAlive), an Anchor (the vvc argument),
+   * and an 'Eval'-subtype card (consumed automatically). Advisory only — the
+   * intent is still fully validated server-side.
+   */
+  private isEvalLegalFor(player: PlayerSchema): boolean {
+    if (this.state.phase !== Phase.play || this.state.currentTurnPlayerId !== player.sessionId) {
+      return false;
+    }
+    const hasLiveBoard = [...player.boards].some(
+      (board) => board !== undefined && board.isActive !== false
+        && (board as { destroyed?: boolean }).destroyed !== true,
+    );
+    if (!hasLiveBoard) return false;
+    const hand = [...player.hand];
+    return hand.some((card) => card?.subtype === 'Anchor')
+      && hand.some((card) => card?.subtype === 'Eval');
+  }
+
+  /**
+   * Wave-10 T6 client-truth flag: cards still drawable on this player's draw
+   * step. The draw phase ends on the first accepted batch (finalizeDraw →
+   * play), so the quota is the full 2 while the step is open, 0 otherwise.
+   */
+  private drawsRemainingFor(player: PlayerSchema): number {
+    return this.state.phase === Phase.draw && this.state.currentTurnPlayerId === player.sessionId ? 2 : 0;
+  }
 
   private seedPlayerDecks(player: PlayerSchema): void {
     const catalog = loadCatalog();
