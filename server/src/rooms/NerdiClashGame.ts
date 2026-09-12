@@ -216,6 +216,17 @@ export class NerdiClashGame {
     // Authority backstop: the Colyseus handlers run these checks early
     // (handlers.ts), but the JSON bridge calls dispatchIntent directly, so
     // turn/defender ownership is enforced here where both transports share it.
+    if (intent === 'build_function') {
+      // Parity with handlers.ts: construction takes simultaneous builds from
+      // both players; in play only the turn owner may rebuild a wiped board
+      // (BuildFunctionCommand enforces the empty-expression rule itself).
+      if (this.state.phase !== Phase.construction && this.state.phase !== Phase.play) {
+        return { ok: false, reason: 'build_function only in construction or play phase' };
+      }
+      if (this.state.phase === Phase.play && sessionId !== this.state.currentTurnPlayerId) {
+        return { ok: false, reason: 'not the active player' };
+      }
+    }
     if (
       intent === 'play_card'
       || intent === 'set_trap'
@@ -285,6 +296,10 @@ export class NerdiClashGame {
       if (!submission.ok) {
         return { ok: false, reason: submission.reason ?? 'build_function rejected by phase' };
       }
+      // The submission gate owns the write during construction — the command
+      // stayed write-free so a rejected intent mutates nothing.
+      if (board) board.expression = String(payload.expression);
+      this.emitGameEvent('build_function', sessionId, { boardId: String(payload.boardId) });
     }
     if (result.ok && intent === 'play_defense') {
       // PlayDefenseCommand already zeroed the pending damage for a successful
