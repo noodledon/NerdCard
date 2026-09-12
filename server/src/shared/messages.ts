@@ -77,6 +77,13 @@ export const LeaveRoomSchema = z.object({
   type: z.literal('leave_room'),
 });
 
+// Room-lifecycle intent handled at the transport layer (JSON bridge), not by
+// NerdiClashGame.dispatchIntent — a finished game resets only when both
+// seated players vote for it.
+export const RematchSchema = z.object({
+  type: z.literal('rematch'),
+});
+
 export const ClientMessage = z.discriminatedUnion('type', [
   BuildFunctionSchema,
   PlayCardSchema,
@@ -88,6 +95,7 @@ export const ClientMessage = z.discriminatedUnion('type', [
   EndTurnSchema,
   ReadyInstSchema,
   LeaveRoomSchema,
+  RematchSchema,
 ]);
 
 export type ClientMessage = z.infer<typeof ClientMessage>;
