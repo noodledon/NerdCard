@@ -21,6 +21,12 @@ export const PlayCardSchema = z.object({
     })
     .default({ kind: 'none' }),
   numberFactorCardIds: z.array(z.string()).optional(),
+  // composition plays only: the symbol to substitute inside the outer board
+  // (e.g. 'x') and the inner board to compose in. Both optional — the server
+  // falls back to the outer board's sole distinct variable / the first other
+  // board when omitted.
+  variable: z.string().optional(),
+  secondaryBoardId: z.string().optional(),
 });
 
 export const DrawCardsDeckChoiceSchema = z.object({
