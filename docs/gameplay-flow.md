@@ -81,7 +81,9 @@ Players alternate turns. Each turn has **4 phases**:
 ├──────────────┬──────────────────────────────────────────────┤
 │ 1. DRAW      │ Active player draws 2 cards from any         │
 │    PHASE     │ combination of the 3 decks (e.g. 1 FCC +     │
-│              │ 1 Action, or 2 Number cards).                │
+│              │ 1 Action, or 2 Number cards). The server      │
+│              │ rejects any batch that doesn't total exactly  │
+│              │ 2 — no partial or over-draws.                │
 ├──────────────┼──────────────────────────────────────────────┤
 │ 2. PLAY      │ Active player performs up to 2 actions:      │
 │    PHASE     │  • Build/modify function with FCC cards       │
@@ -150,6 +152,7 @@ Your function lives on a **Function Board** as a math expression string (e.g., `
 - **Add Term FCCs** add terms to your expression (e.g., turns `"x^2"` into `"x^2 + 2*x"`)
 - **Calculus FCCs** transform your expression (derivative of `"x^2"` → `"2*x"`)
 - **Composition** substitutes one function into another (cross-domain only, max depth 2)
+- **Post-evaluation rebuild**: after an eval wipes a board (`expression=''`), the turn owner may resubmit `build_function` for that board during their play phase. A board holding a live expression cannot be rewritten — `build_function` outside construction exists solely to re-establish an evaluated board, and only on your own turn.
 
 ### Multiple Boards
 - Start with 1 board, can add up to 3 via "Add Board" cards
@@ -256,10 +259,12 @@ A player wins by achieving ANY ONE of:
 
 | # | Condition | How It Triggers |
 |---|-----------|-----------------|
-| 1 | **Reduce opponent HP to 0** | Attack cards or post-force-eval HP=0 |
+| 1 | **Reduce opponent HP to 0** | Attack cards or post-force-eval HP=0 (HP floors at 0 — an eval that lands negative clamps, it never produces negative HP) |
 | 2 | **Isolate opponent's variables** | Reduce opponent's function to a single variable like `{x}`. They have **3 turns** to rebuild a valid function. If they fail → they lose. Tracked via `variable_isolation_timers[sessionId]`. |
-| 3 | **Force Evaluation domination** | Initiator's value > 2× every opponent's (see §10) |
+| 3 | **Force Evaluation domination** | Initiator's value > 2× every opponent's (see §10). No HP transfers on a domination win — the game simply ends. |
 | 4 | **Linear Algebra destruction** | Reduce opponent's vector space dimension to 0, OR force their matrix board to become singular (determinant = 0) |
+
+**Game over without a winner is also possible**: if the construction deadline elapses with no valid submissions, the game ends `abandoned` with `winnerId: null`. If exactly one player submitted, that player wins `abandoned`.
 
 ---
 
@@ -343,11 +348,16 @@ VVCs are dealt at end of construction phase — 5 per player. They're not drawn 
 
 | Case | Handling |
 |------|----------|
-| Deck exhaustion | Graveyard auto-reshuffles into the deck |
+| Deck exhaustion | Graveyard auto-reshuffles into the deck **of the same deck type** — cross-deck cards in the shared graveyard are never pulled into a deck they don't belong to (Anchors never refill) |
+| Deck empty with only foreign graveyard cards | Draw rejected `deck empty`; turn continues |
 | Both decks empty | Player draws nothing; turn continues |
+| Construction deadline with 0 submissions | Game over `abandoned`, `winnerId: null` |
+| Construction deadline with 1 submission | Submitter wins, `winReason: 'abandoned'` |
 | Simultaneous Force Eval plays | Turn player's effect resolves first; opponent's fizzles |
 | Card targets a destroyed board | Card fizzles, goes to graveyard |
 | Both players disconnect | Room stays alive 30s for reconnect; then disposes |
+| Killed client (no clean close) | Bridge heartbeat (~10s ping) terminates the dead socket on the next sweep; seat frees after ~2 intervals |
+| Seat reclaim | Requires the `reconnectToken` issued at join plus the prior `sessionId` — guessing the id alone gets `ROOM_FULL` |
 | Reconnect during defense phase | Resume pending defense timer if still pending |
 | Undefined evaluation (1/0, ln(0)) | Board destroyed; immediate loss if integral to survival |
 | FP edge in Force Eval (exactly 2×) | `A=60, B=30` → A does NOT win (60 ≯ 60 + 1e-9) |
