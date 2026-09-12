@@ -629,6 +629,28 @@ func _on_card_clicked(card_id: String) -> void:
 		GameModel.selected_factor_card_id = ""
 		return
 
+	## Mod Cage rewrites an own board's expression — target the first active
+	## own board (same shape the generic board-scoped fallthrough sends).
+	if card_type == "modular":
+		var mod_board_id: String = _first_active_board_id(local_player)
+		var mod_target: Dictionary = {"kind": "self_board", "id": mod_board_id} if mod_board_id != "" else {"kind": "none"}
+		ConnectionManager.send_intent("play_card", {
+			"cardId": card_id,
+			"target": mod_target,
+		})
+		return
+
+	## Fermat Echo attacks the opponent's function — target their first
+	## active board (opponent boards are public in snapshots).
+	if card_type == "ntTheorem":
+		var opp_board_id: String = _first_active_board_id(GameModel.opponent_player())
+		var nt_target: Dictionary = {"kind": "opp_board", "id": opp_board_id} if opp_board_id != "" else {"kind": "none"}
+		ConnectionManager.send_intent("play_card", {
+			"cardId": card_id,
+			"target": nt_target,
+		})
+		return
+
 	if card_type == "trap":
 		if String(local_player.get("trapCardId", "")) != "":
 			_show_error("", "Trap slot already occupied")

@@ -10,6 +10,8 @@ export * from './EvalCommand.js';
 export * from './ForceEvalCommand.js';
 export * from './IntegralCommand.js';
 export * from './LimitCommand.js';
+export * from './ModularCommand.js';
+export * from './NtTheoremCommand.js';
 export * from './PlayDefenseCommand.js';
 export * from './TheoremArtifactCommand.js';
 export * from './TheoremMartialCommand.js';

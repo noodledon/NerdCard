@@ -9,6 +9,8 @@ import { EvalCommand, type EvalPayload } from './EvalCommand.js';
 import { ForceEvalCommand, type ForceEvalPayload } from './ForceEvalCommand.js';
 import { IntegralCommand, type IntegralPayload } from './IntegralCommand.js';
 import { LimitCommand, type LimitPayload } from './LimitCommand.js';
+import { ModularCommand, type ModularPayload } from './ModularCommand.js';
+import { NtTheoremCommand, type NtTheoremPayload } from './NtTheoremCommand.js';
 import { TheoremArtifactCommand, type TheoremArtifactPayload } from './TheoremArtifactCommand.js';
 import { TheoremMartialCommand } from './TheoremMartialCommand.js';
 import { TrapCommand, type TrapPayload } from './TrapCommand.js';
@@ -29,6 +31,8 @@ export type CommandIntent =
   | { intent: 'derivative'; payload: DerivativePayload }
   | { intent: 'integral'; payload: IntegralPayload }
   | { intent: 'limit'; payload: LimitPayload }
+  | { intent: 'modular'; payload: ModularPayload }
+  | { intent: 'nt-theorem'; payload: NtTheoremPayload }
   | { intent: 'build-function'; payload: BuildFunctionCommandPayload }
   | { intent: 'play-defense'; payload: PlayDefensePayload };
 
@@ -55,6 +59,8 @@ export class CommandDispatcher {
       case 'derivative': return new DerivativeCommand() as GameCommand<unknown>;
       case 'integral': return new IntegralCommand() as GameCommand<unknown>;
       case 'limit': return new LimitCommand() as GameCommand<unknown>;
+      case 'modular': return new ModularCommand() as GameCommand<unknown>;
+      case 'nt-theorem': return new NtTheoremCommand() as GameCommand<unknown>;
       case 'build-function': return new BuildFunctionCommand() as GameCommand<unknown>;
       case 'play-defense': return new PlayDefenseCommand() as GameCommand<unknown>;
     }

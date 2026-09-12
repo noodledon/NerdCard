@@ -27,10 +27,18 @@ const WIN_REASON_BY_ENGINE: Record<string, string> = {
 /** Catalog id → display name, used to enrich hand entries in snapshots. */
 const CARD_NAME_BY_ID = new Map(loadCatalog().map((card) => [card.id, card.name]));
 
+/**
+ * Catalog id → effectParams. catalogCardToSchema deliberately drops
+ * effectParams (CardSchema field-count guard), so card commands re-join them
+ * here at the routing layer — never read them off CardSchema.
+ */
+const CARD_EFFECT_PARAMS_BY_ID = new Map(loadCatalog().map((card) => [card.id, card.effectParams]));
+
 /** play_card cardTypes that toCommandIntent already routes to a command. */
 const ROUTED_PLAY_CARD_TYPES = new Set([
   'addTerm', 'derivative', 'offensive', 'martialTheorem', 'trap',
   'artifactTheorem', 'forceEval', 'addBoard', 'composition', 'integral', 'limit',
+  'modular', 'ntTheorem',
 ]);
 
 /**
@@ -771,6 +779,29 @@ export class NerdiClashGame {
             return { intent: 'integral', payload: { playerId, cardId, boardId } };
           case 'limit':
             return { intent: 'limit', payload: { playerId, cardId, boardId } };
+          case 'modular': {
+            const modulus = CARD_EFFECT_PARAMS_BY_ID.get(cardId)?.modulus;
+            if (typeof modulus !== 'number' || !Number.isInteger(modulus) || modulus <= 0) {
+              return { ok: false, reason: 'modular modulus unavailable' };
+            }
+            return { intent: 'modular', payload: { playerId, cardId, boardId, modulus } };
+          }
+          case 'ntTheorem': {
+            const theorem = CARD_EFFECT_PARAMS_BY_ID.get(cardId)?.theorem;
+            if (typeof theorem !== 'string' || theorem === '') {
+              return { ok: false, reason: 'nt theorem unavailable' };
+            }
+            return {
+              intent: 'nt-theorem',
+              payload: {
+                playerId,
+                cardId,
+                targetPlayerId: attackPayload.targetPlayerId,
+                targetBoardId: attackPayload.targetBoardId,
+                theorem,
+              },
+            };
+          }
           default:
             return undefined;
         }
