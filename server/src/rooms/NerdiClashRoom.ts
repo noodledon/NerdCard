@@ -63,6 +63,14 @@ export class NerdiClashRoom extends ColyseusRoom {
         actorId: ev.actorId,
         turnId: this.game.state.turnIndex,
       });
+      if (ev.event === 'game_over') {
+        // Same dedicated GameOverSchema frame the JSON bridge sends — one
+        // core emit, both transports translate.
+        this.broadcast('game_over', {
+          winnerId: typeof ev.details.winner === 'string' ? ev.details.winner : null,
+          winReason: typeof ev.details.winReason === 'string' ? ev.details.winReason : null,
+        });
+      }
     });
 
     await this.setMetadata({ mode: 'nerdiclash' });
