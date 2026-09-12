@@ -6,8 +6,8 @@
 | toString | math.js | GREEN | unwrap + `node.toString()` |
 | evaluate | math.js | GREEN | `parse` → `compile` → `evaluate(scope)`; numbers returned directly, Complex/Matrix wrapped |
 | derivative | math.js | GREEN | `math.derivative(node, var)` |
-| integrate | hybrid (SymPy when USE_SYMPY=true) | YELLOW | SymPy microservice when USE_SYMPY=true; mathjs stub returns `supported: false` otherwise |
-| limit | hybrid (SymPy when USE_SYMPY=true) | YELLOW | SymPy microservice when USE_SYMPY=true; mathjs stub returns `supported: false` otherwise |
+| integrate | mathjs (polynomials) + hybrid (SymPy when USE_SYMPY=true) | YELLOW | mathjs fast-path integrates polynomials in the variable (incl. symbolic coefficients / constant denominators); non-polynomial input returns the stub and SymPy covers it when enabled |
+| limit | mathjs (polynomials) + hybrid (SymPy when USE_SYMPY=true) | YELLOW | mathjs fast-path evaluates polynomial limits by substitution at a finite approach point; non-polynomial or non-finite approach returns the stub and SymPy covers it when enabled |
 | continuityCheck | hybrid (SymPy when USE_SYMPY=true) | YELLOW | SymPy microservice when USE_SYMPY=true; mathjs stub returns `supported: false` otherwise |
 | simplify | math.js | GREEN | `math.simplify(node)` |
 | rationalize | math.js | GREEN | `math.rationalize(node)` |

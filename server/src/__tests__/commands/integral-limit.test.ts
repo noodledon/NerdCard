@@ -1,5 +1,6 @@
 import { describe, expect, it } from 'vitest';
 import { getCardById } from '../../data/load-catalog.js';
+import { mathjsEngine } from '../../math/mathjs-engine.js';
 import { Phase } from '../../logic/fsm.js';
 import { NerdiClashGame } from '../../rooms/NerdiClashGame.js';
 import { catalogCardToSchema, type FunctionBoardSchema } from '../../state/schema.js';
@@ -27,13 +28,53 @@ function firstBoard(game: NerdiClashGame, playerId: string): FunctionBoardSchema
 }
 
 describe.skipIf(process.env.USE_SYMPY === 'true')(
-  'IntegralCommand and LimitCommand (default mathjs stub)',
+  'IntegralCommand and LimitCommand (default mathjs engine)',
   () => {
-  it('integral returns ok:false on the stub without graveyarding the card', async () => {
+  it('integral transforms a polynomial board and graveyards the card', async () => {
     const game = gameInPlay();
     const p1 = game.getPlayer('p1');
     if (!p1) throw new Error('player missing');
-    firstBoard(game, 'p1').expression = 'x^2';
+    const board = firstBoard(game, 'p1');
+    board.expression = 'x^2 + 3*x';
+    giveCard(game, 'p1', 'fcc-calc-integral-001');
+
+    const result = await Promise.resolve(game.dispatchIntent('p1', 'play_card', {
+      cardId: 'fcc-calc-integral-001',
+      target: { kind: 'none' },
+    }));
+
+    expect(result).toEqual({ ok: true });
+    expect(
+      mathjsEngine.symbolicEqual(board.expression, 'x^3/3 + 3*x^2/2'),
+    ).toBe(true);
+    const handIds = [...p1.hand].map((c) => c?.id);
+    expect(handIds).not.toContain('fcc-calc-integral-001');
+  });
+
+  it('limit substitutes on a polynomial board and graveyards the card', async () => {
+    const game = gameInPlay();
+    const p1 = game.getPlayer('p1');
+    if (!p1) throw new Error('player missing');
+    const board = firstBoard(game, 'p1');
+    board.expression = 'x^2 + 3*x';
+    giveCard(game, 'p1', 'fcc-calc-limit-001');
+
+    const result = await Promise.resolve(game.dispatchIntent('p1', 'play_card', {
+      cardId: 'fcc-calc-limit-001',
+      target: { kind: 'none' },
+    }));
+
+    expect(result).toEqual({ ok: true });
+    expect(board.expression).toBe('0');
+    const handIds = [...p1.hand].map((c) => c?.id);
+    expect(handIds).not.toContain('fcc-calc-limit-001');
+  });
+
+  it('integral returns ok:false on the stub for a non-polynomial board', async () => {
+    const game = gameInPlay();
+    const p1 = game.getPlayer('p1');
+    if (!p1) throw new Error('player missing');
+    firstBoard(game, 'p1').expression = 'sin(x)';
     giveCard(game, 'p1', 'fcc-calc-integral-001');
 
     const result = await Promise.resolve(game.dispatchIntent('p1', 'play_card', {
@@ -47,11 +88,11 @@ describe.skipIf(process.env.USE_SYMPY === 'true')(
     expect(handIds).toContain('fcc-calc-integral-001');
   });
 
-  it('limit returns ok:false on the stub without graveyarding the card', async () => {
+  it('limit returns ok:false on the stub for a non-polynomial board', async () => {
     const game = gameInPlay();
     const p1 = game.getPlayer('p1');
     if (!p1) throw new Error('player missing');
-    firstBoard(game, 'p1').expression = 'x^2';
+    firstBoard(game, 'p1').expression = 'sin(x)';
     giveCard(game, 'p1', 'fcc-calc-limit-001');
 
     const result = await Promise.resolve(game.dispatchIntent('p1', 'play_card', {
