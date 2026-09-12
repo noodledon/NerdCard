@@ -46,10 +46,23 @@ Normal development and `npm test` use math.js and do not require Python. Set `US
 ```bash
 python -m venv sympy-service/.venv
 sympy-service/.venv/bin/pip install -r sympy-service/requirements.txt
-./server/scripts/test-with-sympy.sh
 ```
 
-The script starts the service, waits for `/health`, runs the full server suite with SymPy enabled, and stops the service. To run the application stack instead:
+Three entry points, by intent:
+
+```bash
+cd server
+npm run dev                          # everyday dev — mathjs only, no Python needed
+npm run dev:sympy                    # SymPy dev stack — boots uvicorn :2569 plus
+                                     # tsx watch under USE_SYMPY=true; Ctrl-C or
+                                     # dev-server exit tears down both
+./server/scripts/test-with-sympy.sh  # one-shot check — service + full vitest
+                                     # suite under SymPy, then teardown
+```
+
+`dev:sympy` exits non-zero with the setup commands above if the venv is missing — it never falls back to mathjs silently.
+
+To run the application stack containerized:
 
 ```bash
 docker compose up --build
