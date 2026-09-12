@@ -1,4 +1,4 @@
-import { isIsolatedExpression } from '../math/expressions.js';
+import { distinctVariablesInExpression } from '../math/expressions.js';
 import type { ModeProfile } from './modes.js';
 
 export type WinReason = 'hp0' | 'isolation' | 'force-dom' | 'singular' | 'dim0';
@@ -61,7 +61,17 @@ export function checkWin(state: WinState, profile: ModeProfile): WinResult {
 
   if (profile.win.isolation) {
     for (const player of players) {
-      if (isIsolatedExpression(player.mainBoardExpr) && timerFor(state, player.id) === 0) {
+      // Kill predicate: the main board's distinct-variable count must land in
+      // [isolationMinVars, isolationMaxVars]. v1's 1..1 reproduces the shipped
+      // isIsolatedExpression (exactly-1) check; VI's 0..1 also lets a
+      // constant-only board die — more isolated, not less (doc §3.4 / OQ-4).
+      const vars = distinctVariablesInExpression(player.mainBoardExpr);
+      if (
+        vars !== undefined
+        && vars >= profile.isolationMinVars
+        && vars <= profile.isolationMaxVars
+        && timerFor(state, player.id) === 0
+      ) {
         return { ...base, winner: opponentId(players, player.id), loser: player.id, reason: 'isolation' };
       }
     }

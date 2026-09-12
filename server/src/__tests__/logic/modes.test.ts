@@ -148,20 +148,27 @@ describe('NerdiClashGame profile gating', () => {
     expect(cc.state.variable_isolation_timers.get('p2')).toBeUndefined();
     expect(cc.state.variable_isolation_timers.size).toBe(0);
 
-    // Contrast on the same board shapes: VI still runs the countdown.
-    const vi = await gameInPlay('variable_isolation', 'x+y', 'x');
+    // Contrast on the same board shapes: VI still runs the countdown. VI
+    // construction gates ≤1-var builds (M4/OQ-6), so p2 is reduced
+    // post-construction — the state an attacker's derivative produces.
+    const vi = await gameInPlay('variable_isolation', 'x+y', 'x+y');
+    const viP2Board = requirePlayer(vi, 'p2').boards[0];
+    if (!viP2Board) throw new Error('missing p2 board');
+    viP2Board.expression = 'x';
     expect(vi.requestEndTurn('p1').ok).toBe(true);
     expect(vi.state.variable_isolation_timers.get('p2')).toBe(3);
   });
 
   it('does not declare a force_eval_domination winner in Variable Isolation', async () => {
-    // vvc-4 (=10): 'x*y + x' → 110 strictly dominates 'x - y' → 0 — a
-    // domination result the profile must refuse to convert into a win.
+    // M4/OQ-10: the Showdown card itself is rejected in VI, so the intent
+    // never reaches the showdown — the strongest possible proof that no
+    // force_eval_domination can be declared.
     const vi = await gameInPlay('variable_isolation', 'x*y + x', 'x - y');
     seedHand(vi, 'p1', 'act-special-force-eval-001');
 
     const result = await dispatch(vi, 'p1', 'force_eval', { variableValueCardId: 'vvc-4' });
-    expect(result.ok).toBe(true);
+    expect(result.ok).toBe(false);
+    expect(result.reason).toMatch(/no effect in Variable Isolation/);
     expect(vi.state.winner).toBe('');
     expect(vi.state.phase).not.toBe(Phase.gameOver);
 

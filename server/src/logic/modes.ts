@@ -37,13 +37,33 @@ export interface ModeProfile {
   };
   /**
    * Isolation predicate bound: 1 = v1's reduced-board semantic (a board
-   * counts toward isolation at ≤1 distinct variable). The v1 kill check
-   * stays exactly-1 via isIsolatedExpression; per-mode kill-side loosening
-   * is a later-task concern (doc §3.4 / OQ-4).
+   * counts toward isolation at ≤1 distinct variable). The countdown timer
+   * keys off this bound only.
    */
   isolationMaxVars: number;
+  /**
+   * Kill-side lower bound on the main board's distinct-variable count —
+   * checkWin's isolation branch fires when the count lands in
+   * [isolationMinVars, isolationMaxVars] at timer 0. v1's 1 keeps the
+   * shipped exactly-1 semantic (isIsolatedExpression); VI's 0 also counts
+   * constant boards — a board reduced to a constant is MORE isolated, not
+   * less (doc §3.4 / OQ-4).
+   */
+  isolationMinVars: number;
   /** Turns an isolated player gets to rebuild (v1: 3, counted in game-turns). */
   isolationRebuildTurns: number;
+  /**
+   * Minimum distinct variables a build_function expression must contain
+   * (OQ-6 — VI: 2, so nobody constructs or rebuilds straight into the
+   * isolation net; 0 = no gate beyond domain validity).
+   */
+  constructionMinVars: number;
+  /**
+   * Whether build_function may resurrect a destroyed board (OQ-7 — VI needs
+   * it because boardWipe is off: without re-entry a zero-board player can
+   * never be isolated; v1 keeps destroyed = permanent).
+   */
+  rebuildDestroyedBoards: boolean;
   /** Whether the Showdown card is playable (its domination win aside). */
   forceEvalCard: boolean;
   /** Behavior of the §8.5 auto showdown: 'standard' | 'soft_wipe'. */
@@ -62,7 +82,10 @@ export const MODE_PROFILES: Record<GameMode, ModeProfile> = {
   nerdiclash: {
     win: { hpZero: true, isolation: true, forceDomination: true, boardWipe: true },
     isolationMaxVars: 1,
+    isolationMinVars: 1,
     isolationRebuildTurns: 3,
+    constructionMinVars: 0,
+    rebuildDestroyedBoards: false,
     forceEvalCard: true,
     stallingEval: 'standard',
     offensiveTargeting: {},
@@ -74,7 +97,10 @@ export const MODE_PROFILES: Record<GameMode, ModeProfile> = {
   variable_isolation: {
     win: { hpZero: false, isolation: true, forceDomination: false, boardWipe: false },
     isolationMaxVars: 1,
+    isolationMinVars: 0,
     isolationRebuildTurns: 3,
+    constructionMinVars: 2,
+    rebuildDestroyedBoards: true,
     forceEvalCard: false,
     stallingEval: 'soft_wipe',
     offensiveTargeting: { derivative: 'opp_board', limit: 'opp_board' },
@@ -85,7 +111,10 @@ export const MODE_PROFILES: Record<GameMode, ModeProfile> = {
   classic_clash: {
     win: { hpZero: true, isolation: false, forceDomination: true, boardWipe: true },
     isolationMaxVars: 1,
+    isolationMinVars: 1,
     isolationRebuildTurns: 3,
+    constructionMinVars: 0,
+    rebuildDestroyedBoards: false,
     forceEvalCard: true,
     stallingEval: 'standard',
     offensiveTargeting: {},

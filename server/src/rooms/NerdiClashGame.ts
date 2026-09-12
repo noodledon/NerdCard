@@ -169,6 +169,11 @@ export class NerdiClashGame {
           this.runStallingForceEval(this.state.currentTurnPlayerId);
         }
       }
+      // Doc §10.1 shared fix: the turn ended here, so the isolation countdown
+      // must advance exactly as requestEndTurn advances it — previously only
+      // requestEndTurn ticked the timers, which froze every countdown while
+      // turns timed out (a stall exploit in v1, mode-breaking in VI).
+      this.tickIsolationTimers();
       this.phaseController.requestTransition(Phase.draw);
       this.rotateTurnOwner();
     } else if (previousPhase === Phase.resolution && phase === Phase.draw) {
@@ -798,7 +803,23 @@ export class NerdiClashGame {
   private runStallingForceEval(nominatorId: string): void {
     const counter = this.state.consecutive_no_eval_turns >= 5 ? 'consecutive' : 'global';
     this.emitGameEvent('force_eval', nominatorId, { trigger: 'stalling', counter });
-    this.runForceEval(nominatorId, 1);
+    if (this.profile.stallingEval === 'soft_wipe') {
+      // VI §3.3/OQ-11: the standard showdown would destroy the staller's main
+      // board — with boardWipe off that leaves them un-isolatable forever,
+      // so the anti-stall trigger instead evaluates every active board at
+      // vvc=1 and wipes each to '' (post-eval state, rebuildable through the
+      // existing play-phase build_function path). No HP moves, nothing is
+      // destroyed — stalling resets the siege for everyone.
+      for (const player of this.state.players.values()) {
+        for (const board of player.boards) {
+          if (!board || !board.isActive) continue;
+          evaluate({ expression: board.expression }, 0, 1);
+          board.expression = '';
+        }
+      }
+    } else {
+      this.runForceEval(nominatorId, 1);
+    }
     this.phaseController.onEvalTurn();
   }
 
@@ -847,6 +868,9 @@ export class NerdiClashGame {
       evalEngine: { evaluate },
       forceEval: (_state, nominatorId, vvcValue) => this.runForceEval(nominatorId, vvcValue),
       emitGameEvent: (event, actorId, details) => this.emitGameEvent(event, actorId, details ?? {}),
+      // Commands read the room's resolved rules overlay from here — mode =
+      // data, never a mode string re-resolved inside a command.
+      profile: this.profile,
     }, commandIntent);
   }
 
@@ -926,8 +950,28 @@ export class NerdiClashGame {
               intent: 'add-term',
               payload: { playerId, cardId, boardId, term: card.expressionPayload || 't' },
             };
-          case 'derivative':
-            return { intent: 'derivative', payload: { playerId, cardId, boardId } };
+          case 'derivative': {
+            // §10.2: forward the attacker's `variable` pick — the wire field
+            // existed but was never routed, so v1 always took the first var.
+            const variable = typeof payload.variable === 'string' && payload.variable !== ''
+              ? payload.variable
+              : undefined;
+            // Doc §3.2 mode overlay: opp_board scope only where the profile
+            // grants it — target resolution mirrors ntTheorem/eigenvalue.
+            if (target.kind === 'opp_board' && this.profile.offensiveTargeting.derivative === 'opp_board') {
+              return {
+                intent: 'derivative',
+                payload: {
+                  playerId,
+                  cardId,
+                  targetPlayerId: attackPayload.targetPlayerId,
+                  targetBoardId: attackPayload.targetBoardId,
+                  variable,
+                },
+              };
+            }
+            return { intent: 'derivative', payload: { playerId, cardId, boardId, variable } };
+          }
           case 'offensive':
             return { intent: 'attack-hp', payload: attackPayload };
           case 'martialTheorem':
@@ -975,8 +1019,24 @@ export class NerdiClashGame {
           }
           case 'integral':
             return { intent: 'integral', payload: { playerId, cardId, boardId } };
-          case 'limit':
-            return { intent: 'limit', payload: { playerId, cardId, boardId } };
+          case 'limit': {
+            const variable = typeof payload.variable === 'string' && payload.variable !== ''
+              ? payload.variable
+              : undefined;
+            if (target.kind === 'opp_board' && this.profile.offensiveTargeting.limit === 'opp_board') {
+              return {
+                intent: 'limit',
+                payload: {
+                  playerId,
+                  cardId,
+                  targetPlayerId: attackPayload.targetPlayerId,
+                  targetBoardId: attackPayload.targetBoardId,
+                  variable,
+                },
+              };
+            }
+            return { intent: 'limit', payload: { playerId, cardId, boardId, variable } };
+          }
           case 'modular': {
             const modulus = catalogEffectParams(cardId)?.modulus;
             if (typeof modulus !== 'number' || !Number.isInteger(modulus) || modulus <= 0) {
