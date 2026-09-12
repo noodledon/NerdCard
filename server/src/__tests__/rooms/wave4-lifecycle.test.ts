@@ -13,6 +13,7 @@ type TestRoom = {
   state: GameRoomState;
   clients: { length: number };
   disconnect(): Promise<unknown>;
+  allowReconnection(client: TestClient, seconds: number): Promise<unknown>;
   onJoin(client: TestClient, options: unknown): Promise<void>;
   onLeave(client: TestClient, consented: boolean): Promise<void>;
   onDispose(): void;
@@ -32,6 +33,7 @@ function roomHarness() {
   state.players.set('p1', p1);
   state.players.set('p2', p2);
   const disconnect = vi.fn(async () => undefined);
+  const allowReconnection = vi.fn(async () => ({}));
   const room = Object.create(NerdiClashRoom.prototype) as unknown as TestRoom;
   const game = new NerdiClashGame();
   game.state.players.set('p1', p1);
@@ -44,7 +46,8 @@ function roomHarness() {
   room.state = state;
   room.clients = { length: 1 };
   room.disconnect = disconnect;
-  return { room, p1, p2, disconnect };
+  room.allowReconnection = allowReconnection;
+  return { room, p1, p2, disconnect, allowReconnection };
 }
 
 function client(id: string, events: Array<{ type: string; payload: unknown }> = []): TestClient {
@@ -109,5 +112,50 @@ describe('Wave 4 room lifecycle edges', () => {
         turnId: game.state.turnIndex,
       },
     }]);
+  });
+});
+
+describe('Colyseus allowReconnection path', () => {
+  it('offers a 30s reconnect window on a non-consented drop and keeps the seat', async () => {
+    const { room, allowReconnection } = roomHarness();
+    const dropped = client('p1');
+
+    await room.onLeave(dropped, false);
+
+    // The room hands Colyseus the dropped client with a 30-second window.
+    expect(allowReconnection).toHaveBeenCalledWith(dropped, 30);
+    // The seat is marked offline but never removed — reconnect finds it.
+    const seat = room.state.players.get('p1');
+    expect(seat?.isConnected).toBe(false);
+    expect(room.state.players.size).toBe(2);
+  });
+
+  it('a rejoin inside the window restores the same seat object', async () => {
+    const { room } = roomHarness();
+    const seatBefore = room.state.players.get('p1');
+
+    await room.onLeave(client('p1'), false);
+    await room.onJoin(client('p1'), {});
+
+    const seatAfter = room.state.players.get('p1');
+    expect(seatAfter).toBe(seatBefore); // same PlayerSchema — sessionId/role intact
+    expect(seatAfter?.isConnected).toBe(true);
+  });
+
+  it('schedules teardown when the window expires with everyone still gone', async () => {
+    vi.useFakeTimers();
+    const { room, p2, disconnect, allowReconnection } = roomHarness();
+    allowReconnection.mockRejectedValue(new Error('reconnect timeout'));
+
+    await room.onLeave(client('p1'), true); // consented — no reconnect offer
+    expect(allowReconnection).not.toHaveBeenCalled();
+
+    p2.isConnected = false;
+    await room.onLeave(client('p2'), false); // drops, offer expires unclaimed
+
+    expect(allowReconnection).toHaveBeenCalledTimes(1);
+    await vi.advanceTimersByTimeAsync(30_000);
+    expect(disconnect).toHaveBeenCalledTimes(1);
+    room.onDispose();
   });
 });

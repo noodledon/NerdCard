@@ -62,6 +62,23 @@ describe('mathjsEngine', () => {
     });
   });
 
+  describe('remaining stubs stay honest', () => {
+    // Wave-9 T8: integrate/limit got a polynomial fast-path (w9-T7); the ops
+    // below remain math.js stubs — no in-catalog card reaches them without
+    // SymPy (the LA commands never call rref/rank/continuityCheck). The live
+    // SymPy expectations for the same ops sit in math/integration.test.ts.
+    it.each([
+      ['continuityCheck', () => mathjsEngine.continuityCheck('x^2', 'x', 0)],
+      ['rref', () => mathjsEngine.rref('matrix([1,2],[3,4])')],
+      ['rank', () => mathjsEngine.rank('matrix([1,2],[3,4])')],
+    ] as Array<[string, () => unknown]>)('%s returns the unsupported stub envelope', async (_name, call) => {
+      const result = (await call()) as { ok: boolean; supported: boolean; reason?: string };
+      expect(result.ok).toBe(false);
+      expect(result.supported).toBe(false);
+      expect(result.reason).toMatch(/Not implemented in v1/);
+    });
+  });
+
   describe('round-trip strings-only', () => {
     it('toString(parse(...)) returns a string', () => {
       const node = mathjsEngine.parse('x^2 + 3*x');
