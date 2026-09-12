@@ -249,6 +249,21 @@ describe('trap semantics', () => {
   });
 
   it('requires an Anchor VVC for force eval', () => {
+    const p1 = player('p1', [
+      { id: 'force-1', cardType: 'forceEval' },
+      { id: 'not-an-anchor', cardType: 'offensive' },
+    ]);
+    const gameState = state([p1, player('p2')]);
+    const command = new ForceEvalCommand();
+    command.state = gameState;
+
+    const result = command.execute({ playerId: 'p1', cardId: 'force-1', vvcCardId: 'not-an-anchor' });
+
+    expect(result).toEqual({ ok: false, reason: 'valid variable-value card required' });
+    expect(gameState.forceEvalRequested).toBeUndefined();
+  });
+
+  it('rejects a vvcCardId the player does not hold', () => {
     const p1 = player('p1', [{ id: 'force-1', cardType: 'forceEval' }]);
     const gameState = state([p1, player('p2')]);
     const command = new ForceEvalCommand();
@@ -256,7 +271,7 @@ describe('trap semantics', () => {
 
     const result = command.execute({ playerId: 'p1', cardId: 'force-1', vvcCardId: 'missing' });
 
-    expect(result).toEqual({ ok: false, reason: 'valid variable-value card required' });
+    expect(result).toEqual({ ok: false, reason: "card missing is not in player's hand" });
     expect(gameState.forceEvalRequested).toBeUndefined();
   });
 });

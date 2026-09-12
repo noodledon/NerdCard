@@ -169,11 +169,14 @@ export class NerdiClashRoom extends ColyseusRoom {
   async requestEndTurn(client: HandlerClient): Promise<void> {
     const result = await this.runSerialized(() => this.game.requestEndTurn(client.sessionId));
     if (!result.ok) {
-      client.send('error', { code: ErrorCode.INTERNAL, message: result.reason ?? 'end turn failed' });
+      client.send('error', { code: this.errorCodeFor(result.reason), message: result.reason ?? 'end turn failed' });
     }
   }
 
   private errorCodeFor(reason: string | undefined): ErrorCode {
+    if (reason?.includes('active player') || reason?.includes('defending player')) return ErrorCode.NOT_YOUR_TURN;
+    if (reason?.includes('only in') || reason?.includes('phase')) return ErrorCode.NOT_PHASE_NOT_DRAW;
+    if (reason?.includes('deckChoices') || reason?.includes('invalid draw choices')) return ErrorCode.INVALID_PAYLOAD;
     if (reason?.includes('aggressive action')) return ErrorCode.OFFENSIVE_LIMIT_EXCEEDED;
     if (reason?.includes('not in player')) return ErrorCode.CARD_NOT_IN_HAND;
     if (reason?.includes('maximum') || reason?.includes('already used')) return ErrorCode.TOO_MANY_ACTIONS;

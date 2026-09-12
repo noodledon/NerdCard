@@ -82,7 +82,7 @@ describe('draw_cards validation', () => {
     const result = await dispatch(game, 'p1', 'draw_cards', {
       deckChoices: [{ deck: 'fcc', count: 2 }],
     });
-    expect(result).toEqual({ ok: false, reason: 'not your draw phase' });
+    expect(result).toEqual({ ok: false, reason: 'draw_cards only in draw phase' });
   });
 
   it('rejects draw_cards from the non-active player', async () => {
@@ -96,7 +96,48 @@ describe('draw_cards validation', () => {
     const result = await dispatch(game, 'p2', 'draw_cards', {
       deckChoices: [{ deck: 'fcc', count: 2 }],
     });
-    expect(result).toEqual({ ok: false, reason: 'not your draw phase' });
+    expect(result).toEqual({ ok: false, reason: 'not the active player' });
+  });
+
+  // Wave-10 T2: handlers.ts drawChoiceTotal ported into the shared path —
+  // the bridge previously let a turn owner draw 1–4 cards.
+  it.each([
+    { deckChoices: [{ deck: 'fcc', count: 1 }] },                                  // 1 card
+    { deckChoices: [{ deck: 'fcc', count: 2 }, { deck: 'action', count: 2 }] },    // 4 cards
+    { deckChoices: [{ deck: 'fcc', count: 2 }, { deck: 'number', count: 1 }] },    // 3 cards
+  ])('rejects a draw batch that does not total exactly 2: %j', async ({ deckChoices }) => {
+    const game = new NerdiClashGame();
+    game.addPlayer('p1', 'Player One');
+    game.addPlayer('p2', 'Player Two');
+    game.startGame();
+    await dispatch(game, 'p1', 'build_function', { boardId: boardIdFor(game, 'p1'), expression: 'x^2' });
+    await dispatch(game, 'p2', 'build_function', { boardId: boardIdFor(game, 'p2'), expression: 'x^2' });
+    expect(game.state.phase).toBe(Phase.draw);
+    const handBefore = requirePlayer(game, 'p1').hand.length;
+
+    const result = await dispatch(game, 'p1', 'draw_cards', { deckChoices });
+    expect(result).toEqual({ ok: false, reason: 'deckChoices must draw exactly 2 cards' });
+    expect(requirePlayer(game, 'p1').hand.length).toBe(handBefore);
+    expect(game.state.phase).toBe(Phase.draw);
+  });
+
+  it.each([
+    { deckChoices: [{ deck: 'fcc', count: 0 }, { deck: 'action', count: 2 }] },    // 0-count choice
+    { deckChoices: [{ deck: 'fcc', count: 3 }] },                                // over per-choice bound
+    { deckChoices: [{ deck: 'graveyard', count: 2 }] },                          // unknown deck name
+  ])('rejects malformed deckChoices: %j', async ({ deckChoices }) => {
+    const game = new NerdiClashGame();
+    game.addPlayer('p1', 'Player One');
+    game.addPlayer('p2', 'Player Two');
+    game.startGame();
+    await dispatch(game, 'p1', 'build_function', { boardId: boardIdFor(game, 'p1'), expression: 'x^2' });
+    await dispatch(game, 'p2', 'build_function', { boardId: boardIdFor(game, 'p2'), expression: 'x^2' });
+    const handBefore = requirePlayer(game, 'p1').hand.length;
+
+    const result = await dispatch(game, 'p1', 'draw_cards', { deckChoices });
+    expect(result).toEqual({ ok: false, reason: 'invalid draw choices' });
+    expect(requirePlayer(game, 'p1').hand.length).toBe(handBefore);
+    expect(game.state.phase).toBe(Phase.draw);
   });
 });
 

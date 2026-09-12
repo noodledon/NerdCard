@@ -25,7 +25,8 @@ export class ForceEvalCommand extends GameCommand<ForceEvalPayload> {
       return success({ fizzled: true });
     }
     const vvc = findCard(player, vvcCardId);
-    if (!vvc || vvc.subtype !== 'Anchor') return failure('valid variable-value card required');
+    if (!vvc) return failure(`card ${vvcCardId} is not in player's hand`);
+    if (vvc.subtype !== 'Anchor') return failure('valid variable-value card required');
     const defender = playerValues(state).find(
       (opp) => (opp.sessionId ?? opp.id) !== playerId && Boolean(opp.trapCardId),
     );
