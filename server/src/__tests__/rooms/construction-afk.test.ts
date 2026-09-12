@@ -47,6 +47,9 @@ describe('construction AFK deadline', () => {
     // A winnerless gameOver still refuses intents.
     const result = await dispatch(game, 'p1', 'draw_cards', { deckChoices: [{ deck: 'fcc', count: 2 }] });
     expect(result).toEqual({ ok: false, reason: 'game is over' });
+    // end_turn goes through requestEndTurn, which must refuse with the same
+    // game-over reason (not a phase error) when winner is empty.
+    expect(game.requestEndTurn('p1')).toEqual({ ok: false, reason: 'game is over' });
   });
 
   it('awards the game to the lone submitter when the other player never builds', async () => {

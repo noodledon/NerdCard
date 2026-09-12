@@ -3,7 +3,7 @@ import { randomUUID } from 'node:crypto';
 import { WebSocket, WebSocketServer } from 'ws';
 import { NerdiClashGame } from './rooms/NerdiClashGame.js';
 import { Phase } from './logic/fsm.js';
-import { ErrorCode } from './shared/ErrorCode.js';
+import { ErrorCode, errorCodeForReason } from './shared/ErrorCode.js';
 import { parseClientMessage } from './shared/messages.js';
 import type { CommandResult } from './commands/base.js';
 
@@ -340,15 +340,7 @@ export class JsonBridgeServer {
   }
 
   private errorCodeFor(reason: string | undefined): string {
-    if (reason?.includes('active player') || reason?.includes('defending player')) return ErrorCode.NOT_YOUR_TURN;
-    if (reason?.includes('only in') || reason?.includes('phase')) return ErrorCode.NOT_PHASE_NOT_DRAW;
-    if (reason?.includes('deckChoices') || reason?.includes('invalid draw choices')) return ErrorCode.INVALID_PAYLOAD;
-    if (reason?.includes('aggressive action')) return ErrorCode.OFFENSIVE_LIMIT_EXCEEDED;
-    if (reason?.includes('not in player')) return ErrorCode.CARD_NOT_IN_HAND;
-    if (reason?.includes('maximum') || reason?.includes('already used')) return ErrorCode.TOO_MANY_ACTIONS;
-    if (reason?.includes('deck empty')) return ErrorCode.INVALID_TARGET;
-    if (reason?.includes('player not found')) return ErrorCode.INVALID_TARGET;
-    return ErrorCode.INVALID_TARGET;
+    return errorCodeForReason(reason);
   }
 
   dispose(): void {
