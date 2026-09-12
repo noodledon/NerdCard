@@ -413,7 +413,7 @@ Renders update
 
 The MVP client is intentionally bare-bones — **text-rendering only, no animations, no card art, no sound**:
 
-- **Connect screen**: IP/URL input, Connect button, Status label
+- **Connect screen**: IP/URL input, room-name input, Connect button, Status label, Refresh button + room directory (below), Leave button (visible while seated)
 - **Game board**: 
   - Two player panels (top=opponent, bottom=you)
   - HP displayed as `hp10 / 10` (integer ×10 server field)
@@ -427,7 +427,7 @@ The MVP client is intentionally bare-bones — **text-rendering only, no animati
 - **Buttons**: Draw FCC / Draw Number / Draw Action, End Turn, Evaluate, error modal
 - **Intents on click**: Card click → `play_card`, End Turn → `end_turn`, Draw → `draw_cards`
 
-No lobby beyond direct IP connect. No matchmaking beyond `joinOrCreate`.
+Rooms live on the bridge, not in a lobby server: the connect screen's **Refresh** sends `list_rooms` (answered by any connected socket, seated or not) and renders each reply row as `name — playerCount/2 — phase`; clicking a row fills the room field and Connect joins it. **Leave** sends `leave_room` — the bridge answers `left_room`, keeps the socket open, and the client returns to the connect screen (seat credentials are cleared: a voluntary leave is not a drop). The room keeps the seat reclaimable via its reconnect token while it lives; the last leaver tears the room down. No matchmaking, chat, or spectate — the directory is names + occupancy only.
 
 ---
 
