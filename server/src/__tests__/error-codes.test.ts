@@ -42,6 +42,7 @@ describe('errorCodeForReason', () => {
     ['build_function rejected by phase', ErrorCode.NOT_PHASE_NOT_DRAW],
     ['deckChoices must draw exactly 2 cards', ErrorCode.INVALID_PAYLOAD],
     ['invalid draw choices', ErrorCode.INVALID_PAYLOAD],
+    ['mode mismatch: room is nerdiclash', ErrorCode.MODE_MISMATCH],
     ["card x is not in player's hand", ErrorCode.CARD_NOT_IN_HAND],
     ['player not found', ErrorCode.INVALID_TARGET],
     // documented INVALID_TARGET fallback

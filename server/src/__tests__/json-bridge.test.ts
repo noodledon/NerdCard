@@ -1450,4 +1450,187 @@ describe('JsonBridgeServer', () => {
       expect(over.winner).toBeFalsy();
     });
   });
+
+  /**
+   * Wave-13 M1: `join_room.mode` is captured on the room's slot at creation,
+   * echoed back in `joined` + flat on every snapshot + on `room_list` rows,
+   * enforced on later fresh joins (MODE_MISMATCH), ignored on seat reclaim
+   * (the seat's mode is the room's), and inherited by a rematch. A missing
+   * or empty mode keeps the v1 'nerdiclash' default; unknown values are
+   * INVALID_PAYLOAD. The default-room `game` getter drives internals the
+   * same way the serialization/rematch tests do.
+   */
+  describe('game modes', () => {
+    /** Root-level mode on a state_snapshot frame (config is never snapshotted). */
+    const modeOf = (msg: BridgeMessage): unknown =>
+      (msg.state as { mode?: unknown } | undefined)?.mode;
+    const timersOf = (msg: BridgeMessage): Record<string, number> =>
+      ((msg.state as { variable_isolation_timers?: Record<string, number> } | undefined)
+        ?.variable_isolation_timers) ?? {};
+
+    it('echoes the joined mode for every mode and surfaces it flat on snapshots', async () => {
+      for (const mode of ['nerdiclash', 'variable_isolation', 'classic_clash']) {
+        const client = await connect();
+        const joined = await joinRoom(client, { room: `m-${mode}`, mode });
+        expect(joined.type).toBe('joined');
+        expect(joined.mode).toBe(mode);
+
+        const snap = await client.waitForNext(isSnapshot, 3000, `${mode} snapshot`);
+        expect(modeOf(snap)).toBe(mode);
+      }
+    });
+
+    it('defaults mode to nerdiclash when join_room omits the field', async () => {
+      const client = await connect();
+      const joined = await joinRoom(client);
+      expect(joined.type).toBe('joined');
+      expect(joined.mode).toBe('nerdiclash');
+
+      const snap = await client.waitForNext(isSnapshot, 3000, 'state_snapshot');
+      expect(modeOf(snap)).toBe('nerdiclash');
+    });
+
+    it('rejects a non-catalog mode with INVALID_PAYLOAD and keeps the socket usable', async () => {
+      const client = await connect();
+      for (const mode of ['deathmatch', 42]) {
+        const resp = await joinRoom(client, { mode });
+        expect(resp.type).toBe('error');
+        expect(resp.code).toBe(ErrorCode.INVALID_PAYLOAD);
+      }
+      const ok = await joinRoom(client, { mode: 'classic_clash' });
+      expect(ok.type).toBe('joined');
+      expect(ok.mode).toBe('classic_clash');
+    });
+
+    it('rejects a fresh join that disagrees with a live room mode — MODE_MISMATCH', async () => {
+      const first = await connect();
+      const j1 = await joinRoom(first, { room: 'alpha', mode: 'variable_isolation' });
+      expect(j1.type).toBe('joined');
+
+      const second = await connect();
+      const bad = await joinRoom(second, { room: 'alpha', mode: 'classic_clash' });
+      expect(bad.type).toBe('error');
+      expect(bad.code).toBe(ErrorCode.MODE_MISMATCH);
+
+      // The mismatched join took no seat and the socket stays usable — an
+      // agreeing retry lands p2 in alpha instead of erroring or overflowing.
+      const ok = await joinRoom(second, { room: 'alpha', mode: 'variable_isolation' });
+      expect(ok.type).toBe('joined');
+      expect(ok.role).toBe('p2');
+      expect(ok.mode).toBe('variable_isolation');
+    });
+
+    it('ignores mode on a seat reclaim — the seat keeps the room mode', async () => {
+      const c1 = await connect();
+      const j1 = await joinRoom(c1, { room: 'alpha', mode: 'classic_clash' });
+      expect(j1.type).toBe('joined');
+      const c2 = await connect();
+      const j2 = await joinRoom(c2, { room: 'alpha', mode: 'classic_clash' });
+      expect(j2.type).toBe('joined');
+      await c1.waitFor(snapshotPhase('construction'), 3000, 'construction snapshot');
+      await c1.close();
+
+      // Reclaiming while claiming a different mode still restores the seat —
+      // the room's mode wins and is what the reply echoes.
+      const { client: rejoined, msg } = await joinRoomWithRetry({
+        room: 'alpha',
+        mode: 'variable_isolation',
+        sessionId: j1.sessionId,
+        reconnectToken: j1.reconnectToken,
+      });
+      expect(msg.type).toBe('joined');
+      expect(msg.sessionId).toBe(j1.sessionId);
+      expect(msg.mode).toBe('classic_clash');
+
+      const snap = await rejoined.waitForNext(isSnapshot, 3000, 'resync snapshot');
+      expect(modeOf(snap)).toBe('classic_clash');
+    });
+
+    it('carries mode on room_list rows', async () => {
+      const a = await connect();
+      await joinRoom(a, { room: 'alpha', mode: 'variable_isolation' });
+      const b = await connect();
+      await joinRoom(b, { room: 'beta', mode: 'classic_clash' });
+
+      const watcher = await connect();
+      watcher.send({ type: 'list_rooms' });
+      const list = await watcher.waitFor(ofType('room_list'), 3000, 'room_list');
+      const rooms = (list.rooms ?? []) as Array<{ name: string; mode?: string }>;
+      expect(rooms.find((r) => r.name === 'alpha')?.mode).toBe('variable_isolation');
+      expect(rooms.find((r) => r.name === 'beta')?.mode).toBe('classic_clash');
+    });
+
+    it('inherits the slot mode on rematch instead of re-asking', async () => {
+      // Default room so the private `game` getter reaches the slot — the
+      // room name 'nerdiclash' and the mode are independent.
+      const c1 = await connect();
+      const j1 = await joinRoom(c1, { mode: 'classic_clash' });
+      const c2 = await connect();
+      const j2 = await joinRoom(c2, { mode: 'classic_clash' });
+      expect(j2.type).toBe('joined');
+      const sid1 = String(j1.sessionId);
+      await c1.waitFor(snapshotPhase('construction'), 3000, 'construction snapshot');
+
+      const internals = bridge as unknown as { game?: NerdiClashGame };
+      const game = internals.game;
+      if (!game) throw new Error('default-room game missing after two joins');
+      game.state.winner = sid1;
+      game.state.phase = Phase.gameOver;
+
+      c1.send({ type: 'rematch' });
+      await c1.waitFor(isResponse, 3000, 'rematch response');
+      c2.send({ type: 'rematch' });
+      await c2.waitFor(isResponse, 3000, 'rematch response');
+
+      const snap = await c1.waitFor(snapshotPhase('construction'), 3000, 'rematch construction');
+      expect(modeOf(snap)).toBe('classic_clash');
+      expect(internals.game?.state.config.mode).toBe('classic_clash');
+    });
+
+    it('runs the joined mode profile — a Classic Clash room never starts isolation timers', async () => {
+      const c1 = await connect();
+      const j1 = await joinRoom(c1, { room: 'alpha', mode: 'classic_clash' });
+      const c2 = await connect();
+      const j2 = await joinRoom(c2, { room: 'alpha', mode: 'classic_clash' });
+      expect(j2.type).toBe('joined');
+
+      const conSnap = await c1.waitFor(snapshotPhase('construction'), 3000, 'construction snapshot');
+      const state = snapshotState(conSnap);
+      expect(modeOf(conSnap)).toBe('classic_clash');
+      const sid1 = String(j1.sessionId);
+      const sid2 = String(j2.sessionId);
+      const turnId = String(state.currentTurnPlayerId);
+      // Both boards single-variable — a shape that would start the
+      // countdown in any isolation-enabled mode.
+      c1.send({ type: 'build_function', boardId: state.players?.[sid1]?.boards?.[0]?.boardId, expression: 'x' });
+      c2.send({ type: 'build_function', boardId: state.players?.[sid2]?.boards?.[0]?.boardId, expression: 'x' });
+      await c1.waitFor(isResponse, 3000, 'build_function response');
+      await c2.waitFor(isResponse, 3000, 'build_function response');
+
+      const turnClient = turnId === sid1 ? c1 : c2;
+      await turnClient.waitFor(
+        (msg) => isSnapshot(msg)
+          && snapshotState(msg).phase === 'draw'
+          && snapshotState(msg).currentTurnPlayerId === turnId,
+        3000,
+        'turn draw snapshot',
+      );
+      turnClient.send({ type: 'draw_cards', deckChoices: [{ deck: 'fcc', count: 2 }] });
+      await turnClient.waitFor(isResponse, 3000, 'draw_cards response');
+      await turnClient.waitFor(
+        (msg) => isSnapshot(msg)
+          && snapshotState(msg).phase === 'play'
+          && snapshotState(msg).currentTurnPlayerId === turnId,
+        3000,
+        'turn play snapshot',
+      );
+
+      turnClient.send({ type: 'end_turn' });
+      const end = await turnClient.waitFor(isResponse, 3000, 'end_turn response');
+      expect(end).toMatchObject({ type: 'ack', intent: 'end_turn' });
+
+      const after = await turnClient.waitForNext(isSnapshot, 3000, 'post-turn snapshot');
+      expect(timersOf(after)).toEqual({});
+    });
+  });
 });

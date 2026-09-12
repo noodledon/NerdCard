@@ -6,6 +6,7 @@ import { PhaseController } from './phaseController.js';
 import { CommandDispatcher, type CommandIntent } from '../commands/CommandDispatcher.js';
 import { evaluate, forceEval as engineForceEval, type ForceEvalPlayer } from '../logic/evalEngine.js';
 import { checkWin } from '../logic/winEngine.js';
+import { DEFAULT_MODE, MODE_PROFILES, type GameMode, type ModeProfile } from '../logic/modes.js';
 import { distinctVariablesInExpression } from '../math/expressions.js';
 import type { CommandResult, CommandState } from '../commands/base.js';
 
@@ -60,12 +61,16 @@ const MAX_ACTIONS_PER_TURN = 2;
 export class NerdiClashGame {
   public readonly state: GameRoomState;
   public readonly phaseController: PhaseController;
+  /** Rules overlay resolved once from the room's mode — see logic/modes.ts. */
+  public readonly profile: ModeProfile;
   private readonly commandDispatcher = new CommandDispatcher();
   private eventListener: GameEventListener | undefined;
 
-  constructor() {
+  constructor(mode: GameMode = DEFAULT_MODE) {
     this.state = new GameRoomState();
     this.state.phase = Phase.waiting;
+    this.state.config.mode = mode;
+    this.profile = MODE_PROFILES[mode];
     this.phaseController = new PhaseController(this.state);
   }
 
@@ -423,6 +428,9 @@ export class NerdiClashGame {
 
   getStateSnapshot(): Record<string, unknown> {
     return {
+      // Mode lives on state.config (schema); snapshots surface it flat since
+      // config is not otherwise snapshotted.
+      mode: this.state.config.mode,
       phase: this.state.phase,
       currentTurnPlayerId: this.state.currentTurnPlayerId,
       turnDeadline: this.state.turnDeadline,
@@ -592,6 +600,9 @@ export class NerdiClashGame {
   }
 
   private tickIsolationTimers(): void {
+    // Modes without the isolation win path (Classic Clash) never run the
+    // countdown — variable_isolation_timers stays empty in snapshots.
+    if (!this.profile.win.isolation) return;
     for (const [id, p] of this.state.players.entries()) {
       // W9-T6 isolation pin (rulebook "reduce the opponent's function to a
       // single variable"): the countdown runs only while the player has at
@@ -606,12 +617,12 @@ export class NerdiClashGame {
       );
       const reduced = activeBoards.length > 0 && activeBoards.every((board) => {
         const vars = distinctVariablesInExpression(board.expression);
-        return vars !== undefined && vars <= 1;
+        return vars !== undefined && vars <= this.profile.isolationMaxVars;
       });
       if (reduced) {
         const current = this.state.variable_isolation_timers.get(id);
         if (current === undefined) {
-          this.state.variable_isolation_timers.set(id, 3);
+          this.state.variable_isolation_timers.set(id, this.profile.isolationRebuildTurns);
         } else if (current > 0) {
           this.state.variable_isolation_timers.set(id, current - 1);
         }
@@ -690,7 +701,7 @@ export class NerdiClashGame {
           })),
       })),
       variableIsolationTimers: this.state.variable_isolation_timers,
-    });
+    }, this.profile);
     if (!result.winner) return;
     this.declareWinner(result.winner, result.loser, WIN_REASON_BY_ENGINE[result.reason ?? ''] ?? '');
   }
@@ -757,7 +768,10 @@ export class NerdiClashGame {
       const player = this.state.players.get(wrapper.id);
       if (player) player.hp10 = wrapper.hp10;
     }
-    if (result.winner) {
+    // Domination → declareWinner is a win path the profile may disable
+    // (Variable Isolation). The HP redistribution / failed-nomination board
+    // destruction above still runs — only the winner declaration is gated.
+    if (result.winner && this.profile.win.forceDomination) {
       const winnerId = result.winner;
       const loserId = [...this.state.players.keys()].find((id) => id !== winnerId);
       this.declareWinner(winnerId, loserId, 'force_eval_domination');

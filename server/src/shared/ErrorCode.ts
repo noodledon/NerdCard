@@ -11,6 +11,7 @@ export enum ErrorCode {
   GAME_OVER = 'GAME_OVER',
   ROOM_FULL = 'ROOM_FULL',
   SERVER_FULL = 'SERVER_FULL',
+  MODE_MISMATCH = 'MODE_MISMATCH',
   INTERNAL = 'INTERNAL',
 }
 
@@ -35,6 +36,7 @@ export function errorCodeForReason(reason: string | undefined): ErrorCode {
   if (reason?.includes('active player') || reason?.includes('defending player')) return ErrorCode.NOT_YOUR_TURN;
   if (reason?.includes('only in') || reason?.includes('phase')) return ErrorCode.NOT_PHASE_NOT_DRAW;
   if (reason?.includes('deckChoices') || reason?.includes('invalid draw choices')) return ErrorCode.INVALID_PAYLOAD;
+  if (reason?.includes('mode mismatch')) return ErrorCode.MODE_MISMATCH;
   if (reason?.includes('aggressive action')) return ErrorCode.OFFENSIVE_LIMIT_EXCEEDED;
   if (reason?.includes('action limit') || reason?.includes('already used')) return ErrorCode.TOO_MANY_ACTIONS;
   if (reason?.includes('board limit') || reason?.includes('maximum')) return ErrorCode.LIMIT_REACHED;

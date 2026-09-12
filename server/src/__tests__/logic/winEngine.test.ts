@@ -1,5 +1,8 @@
 import { describe, expect, it } from 'vitest';
 import { checkWin } from '../../logic/winEngine.js';
+import { MODE_PROFILES } from '../../logic/modes.js';
+
+const V1 = MODE_PROFILES.nerdiclash;
 
 describe('win engine', () => {
   it('does not treat starting zero HP as a loss', () => {
@@ -8,7 +11,7 @@ describe('win engine', () => {
         { id: 'A', hp10: 0, everGainedHP: false },
         { id: 'B', hp10: 0, everGainedHP: false },
       ],
-    });
+    }, V1);
     expect(result.winner).toBeUndefined();
   });
 
@@ -18,7 +21,7 @@ describe('win engine', () => {
         { id: 'A', hp10: 0, everGainedHP: true },
         { id: 'B', hp10: 300, everGainedHP: true },
       ],
-    })).toMatchObject({ winner: 'B', loser: 'A', reason: 'hp0' });
+    }, V1)).toMatchObject({ winner: 'B', loser: 'A', reason: 'hp0' });
   });
 
   it('declares isolation only after the timer expires', () => {
@@ -28,7 +31,7 @@ describe('win engine', () => {
         { id: 'B', hp10: 100, mainBoardExpr: 'x+y' },
       ],
       variableIsolationTimers: new Map([['A', 0]]),
-    })).toMatchObject({ winner: 'B', loser: 'A', reason: 'isolation' });
+    }, V1)).toMatchObject({ winner: 'B', loser: 'A', reason: 'isolation' });
   });
 
   it.each(['3*x', 'x^2', 'x+1'])(
@@ -40,7 +43,7 @@ describe('win engine', () => {
           { id: 'B', hp10: 100, mainBoardExpr: 'x+y' },
         ],
         variableIsolationTimers: new Map([['A', 0]]),
-      })).toMatchObject({ winner: 'B', loser: 'A', reason: 'isolation' });
+      }, V1)).toMatchObject({ winner: 'B', loser: 'A', reason: 'isolation' });
     },
   );
 
@@ -53,7 +56,7 @@ describe('win engine', () => {
           { id: 'B', hp10: 100, mainBoardExpr: 'x+y' },
         ],
         variableIsolationTimers: new Map([['A', 0]]),
-      });
+      }, V1);
       expect(result.winner).toBeUndefined();
     },
   );
@@ -64,7 +67,7 @@ describe('win engine', () => {
         { id: 'A', hp10: 100, boards: [{ isActive: true }, { isSingular: true }] },
         { id: 'B', hp10: 100, boards: [{ isActive: true }] },
       ],
-    });
+    }, V1);
     expect(result.winner).toBeUndefined();
     expect(result.destroyedPlayerBoards).toEqual(['A']);
   });

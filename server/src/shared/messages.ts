@@ -157,6 +157,8 @@ export const RoomInfoSchema = z.object({
   /** Live sockets currently holding a seat in the room. */
   connected: z.number().int().min(0),
   phase: z.string(),
+  /** GameMode the room was created with — fixed for the room's life. */
+  mode: z.string(),
 });
 
 // Bridge answer to list_rooms — a pull snapshot, never pushed.

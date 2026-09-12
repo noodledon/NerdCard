@@ -140,6 +140,7 @@ describe('GameRoomState', () => {
     expect(state.config.maxPlayers).toBe(2);
     expect(state.config.turnTimeoutMs).toBe(30000);
     expect(state.config.seed).toBe('');
+    expect(state.config.mode).toBe('nerdiclash');
   });
 });
 
