@@ -350,7 +350,8 @@ too, that's a product call (OQ-3).
   then tune** (options: timer survives a wipe at -1, escape requires
   domain-valid rebuild, etc.) — don't pre-balance on a two-sentence spec.
 - **OQ-9.** (also CC) For CC: do `force_eval_domination` and board-wipe still
-  win? **Recommended: yes** (dead-card/zombie reasoning, §4.1).
+  win? **Decided (wave-13 M2): yes** — shipped in the `classic_clash` profile
+  (dead-card/zombie reasoning, §4.1).
 - **OQ-10.** The Showdown card in VI: **recommended mode-gated rejection**
   (`force_eval` → reason "Showdown has no effect in Variable Isolation").
   Alternative: playable-but-always-penalty — pointless.
