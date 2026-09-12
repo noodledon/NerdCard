@@ -31,6 +31,33 @@ describe('win engine', () => {
     })).toMatchObject({ winner: 'B', loser: 'A', reason: 'isolation' });
   });
 
+  it.each(['3*x', 'x^2', 'x+1'])(
+    'declares isolation for any single-variable form: %s',
+    (mainBoardExpr) => {
+      expect(checkWin({
+        players: [
+          { id: 'A', hp10: 100, mainBoardExpr },
+          { id: 'B', hp10: 100, mainBoardExpr: 'x+y' },
+        ],
+        variableIsolationTimers: new Map([['A', 0]]),
+      })).toMatchObject({ winner: 'B', loser: 'A', reason: 'isolation' });
+    },
+  );
+
+  it.each(['', '5', 'x +', 'x*y'])(
+    'does not declare isolation for a non-single-variable board: %s',
+    (mainBoardExpr) => {
+      const result = checkWin({
+        players: [
+          { id: 'A', hp10: 100, mainBoardExpr },
+          { id: 'B', hp10: 100, mainBoardExpr: 'x+y' },
+        ],
+        variableIsolationTimers: new Map([['A', 0]]),
+      });
+      expect(result.winner).toBeUndefined();
+    },
+  );
+
   it('does not end the game when a secondary board is destroyed', () => {
     const result = checkWin({
       players: [

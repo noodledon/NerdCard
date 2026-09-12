@@ -6,6 +6,7 @@ import { PhaseController } from './phaseController.js';
 import { CommandDispatcher, type CommandIntent } from '../commands/CommandDispatcher.js';
 import { evaluate, forceEval as engineForceEval, type ForceEvalPlayer } from '../logic/evalEngine.js';
 import { checkWin } from '../logic/winEngine.js';
+import { distinctVariablesInExpression } from '../math/expressions.js';
 import type { CommandResult, CommandState } from '../commands/base.js';
 
 export interface GameEvent {
@@ -475,9 +476,22 @@ export class NerdiClashGame {
 
   private tickIsolationTimers(): void {
     for (const [id, p] of this.state.players.entries()) {
-      const mainBoard = [...p.boards][0];
-      const expr = mainBoard?.expression?.trim() ?? '';
-      if (/^[a-z]$/.test(expr)) {
+      // W9-T6 isolation pin (rulebook "reduce the opponent's function to a
+      // single variable"): the countdown runs only while the player has at
+      // least one ACTIVE board and every active board is reduced to <= 1
+      // distinct variable — `3*x`, `x^2`, `x+1` now count, not just the
+      // single-letter literal. An evaluated board stays active with
+      // expression='' and is unparseable, so it cannot establish "reduced"
+      // and pauses/clears the timer instead. checkWin still gates on the
+      // main board via isIsolatedExpression (exactly-1) — unchanged.
+      const activeBoards = [...p.boards].filter(
+        (board): board is NonNullable<typeof board> => board !== undefined && board.isActive,
+      );
+      const reduced = activeBoards.length > 0 && activeBoards.every((board) => {
+        const vars = distinctVariablesInExpression(board.expression);
+        return vars !== undefined && vars <= 1;
+      });
+      if (reduced) {
         const current = this.state.variable_isolation_timers.get(id);
         if (current === undefined) {
           this.state.variable_isolation_timers.set(id, 3);
