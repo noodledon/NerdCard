@@ -141,8 +141,11 @@ func update_from_player(player: Dictionary, display_name_fallback: String = "", 
 	hp_bar.value = clamp(float(hp10) / 10.0, 0.0, HP_BAR_REFERENCE_MAX)
 	_style_hp_bar(HP_LOW_RED if is_low else HP_GREEN)
 
+	## Opponent snapshots hide the armed card's id entirely and expose only
+	## the `trapSet` boolean (docs §16 privacy, wave-9 T5); the owner view
+	## still carries trapCardId.
 	var trap_card_id: String = String(player.get("trapCardId", ""))
-	var trap_set: bool = trap_card_id != ""
+	var trap_set: bool = trap_card_id != "" or bool(player.get("trapSet", false))
 	trap_slot_indicator.text = "Trap set" if trap_set else "Trap: empty"
 	trap_slot_indicator.add_theme_color_override("font_color", TRAP_ORANGE if trap_set else TEXT_DIM)
 

@@ -416,14 +416,31 @@ describe('play_card intent diagnostics', () => {
     });
   });
 
-  it('reports unimplemented card effects', async () => {
+  it('explains number cards are bound factors, not playable cards', async () => {
     const game = await gameInPlay();
     giveCard(game, 'p1', 'num-prime-2');
+    giveCard(game, 'p1', 'num-irrational-pi');
+    const boundFactorReason =
+      'number cards only take effect as bound factors — attach via numberFactorCardIds on an offensive play';
+    for (const cardId of ['num-prime-2', 'num-irrational-pi']) {
+      const result = await dispatch(game, 'p1', 'play_card', {
+        cardId,
+        target: { kind: 'none' },
+      });
+      expect(result).toEqual({ ok: false, reason: boundFactorReason });
+    }
+  });
+
+  it('explains Anchors are spent by eval intents, not played', async () => {
+    const game = await gameInPlay();
     const result = await dispatch(game, 'p1', 'play_card', {
-      cardId: 'num-prime-2',
+      cardId: 'vvc-1',
       target: { kind: 'none' },
     });
-    expect(result).toEqual({ ok: false, reason: 'card effect not implemented in v1' });
+    expect(result).toEqual({
+      ok: false,
+      reason: 'Anchors are spent by the eval_function/force_eval intent, not played',
+    });
   });
 });
 
@@ -440,6 +457,28 @@ describe('state snapshot additions', () => {
     // p1 drew 2 fcc cards during the gameInPlay drive; p2's piles are untouched.
     expect(players.p1?.deckCounts.fcc).toBe(8);
     expect(players.p2?.deckCounts).toEqual({ fcc: 10, number: 6, action: 9 });
+  });
+
+  it('hides the trap card id from opponents, exposing only trapSet', async () => {
+    const game = await gameInPlay();
+    giveCard(game, 'p1', 'act-trap-001');
+    const armed = await dispatch(game, 'p1', 'set_trap', { cardId: 'act-trap-001' });
+    expect(armed.ok).toBe(true);
+
+    const forP1 = game.getStateSnapshotForPlayer('p1');
+    const ownView = forP1.players as Record<string, Record<string, unknown>>;
+    // The owner still sees which card is armed.
+    expect(ownView.p1?.trapCardId).toBe('act-trap-001');
+    expect(ownView.p1?.trapSet).toBeUndefined();
+    // The opponent's copy of p1 carries only the boolean (docs §16).
+    expect(ownView.p2?.trapSet).toBe(false);
+
+    const forP2 = game.getStateSnapshotForPlayer('p2');
+    const oppView = forP2.players as Record<string, Record<string, unknown>>;
+    expect(oppView.p1?.trapCardId).toBeUndefined();
+    expect(oppView.p1?.trapSet).toBe(true);
+    expect(oppView.p2?.trapCardId).toBe('');
+    expect(oppView.p2?.trapSet).toBeUndefined();
   });
 
   it('joins catalog display names onto hand entries', async () => {

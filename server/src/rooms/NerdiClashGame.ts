@@ -459,6 +459,10 @@ export class NerdiClashGame {
         delete playerData.deckNumber;
         delete playerData.deckAction;
         delete playerData.availableVariables;
+        // §16: trap content is hidden from non-owners — swap the exact card
+        // id for a boolean so the UI can still show "trap armed".
+        playerData.trapSet = typeof playerData.trapCardId === 'string' && playerData.trapCardId !== '';
+        delete playerData.trapCardId;
       }
     }
     return base;
@@ -678,19 +682,30 @@ export class NerdiClashGame {
     this.phaseController.onEvalTurn();
   }
 
-  /** Clearer failure reason when play_card references a card with no routed command. */
+  /**
+   * Clearer failure reason when play_card references a card with no routed
+   * command. Every unrouted catalog card is a non-playable resource, not an
+   * unimplemented one — each gets a reason that says how it IS used.
+   * 'card effect not implemented in v1' is deliberately gone (unreachable).
+   */
   private unroutedPlayCardReason(sessionId: string, payload: Record<string, unknown>): string | undefined {
     const cardId = typeof payload.cardId === 'string' ? payload.cardId : undefined;
     const player = cardId ? this.state.players.get(sessionId) : undefined;
     const card = player ? [...player.hand].find((candidate) => candidate?.id === cardId) : undefined;
     if (!card || ROUTED_PLAY_CARD_TYPES.has(card.cardType)) return undefined;
+    if (card.cardType === 'prime' || card.subtype === 'Irrational') {
+      return 'number cards only take effect as bound factors — attach via numberFactorCardIds on an offensive play';
+    }
     if (card.cardType === 'eval') {
+      if (card.subtype === 'Anchor') {
+        return 'Anchors are spent by the eval_function/force_eval intent, not played';
+      }
       return 'the Evaluate card is spent automatically by the eval_function intent';
     }
     if (card.cardType === 'shield') {
       return 'shield cards are reactive — use play_defense during the defense phase';
     }
-    return 'card effect not implemented in v1';
+    return `card type '${card.cardType}' is a resource — it is never played directly`;
   }
 
   /** Owner of a boardId across all players, or undefined when no board matches. */
