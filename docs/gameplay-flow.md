@@ -266,6 +266,8 @@ A player wins by achieving ANY ONE of:
 
 **Game over without a winner is also possible**: if the construction deadline elapses with no valid submissions, the game ends `abandoned` with `winnerId: null`. If exactly one player submitted, that player wins `abandoned`.
 
+**Rematch**: once the game is over, either player can offer a rematch — the game-over overlay's **Rematch** button sends a `rematch` intent. The first vote disables the button ("Waiting for opponent…") and shows the opponent "Opponent wants a rematch."; when both players have voted, the room resets to a fresh `construction` phase with the same seats (same `sessionId`s, boards wiped, opening hands reseeded). Any intent other than `rematch` sent after game over is rejected with `GAME_OVER`.
+
 ---
 
 ## 12. Stalling Prevention (Two-Mechanism Design)
@@ -349,8 +351,9 @@ VVCs are dealt at end of construction phase — 5 per player. They're not drawn 
 | Case | Handling |
 |------|----------|
 | Deck exhaustion | Graveyard auto-reshuffles into the deck **of the same deck type** — cross-deck cards in the shared graveyard are never pulled into a deck they don't belong to (Anchors never refill) |
-| Deck empty with only foreign graveyard cards | Draw rejected `deck empty`; turn continues |
+| Deck empty with only foreign graveyard cards | Draw rejected `deck empty` (wire code `DECK_EMPTY`); turn continues |
 | Both decks empty | Player draws nothing; turn continues |
+| Intent sent after game over | Rejected `game is over` (wire code `GAME_OVER`); only `rematch` is accepted |
 | Construction deadline with 0 submissions | Game over `abandoned`, `winnerId: null` |
 | Construction deadline with 1 submission | Submitter wins, `winReason: 'abandoned'` |
 | Simultaneous Force Eval plays | Turn player's effect resolves first; opponent's fizzles |
