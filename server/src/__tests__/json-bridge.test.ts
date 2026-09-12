@@ -788,6 +788,109 @@ describe('JsonBridgeServer', () => {
   });
 
   /**
+   * Wave-12 T1: `list_rooms` is a lobby-level pull answered for ANY
+   * connected socket — joined or not — ahead of the findClientByWs gate.
+   * Entries are aggregate counts + phase only; the reply is a snapshot, so
+   * clients re-ask to refresh.
+   */
+  describe('room directory', () => {
+    interface RoomInfo {
+      name: string;
+      playerCount: number;
+      connected: number;
+      phase: string;
+    }
+
+    /** Send list_rooms and return the rooms array from its room_list reply. */
+    async function fetchRooms(client: BridgeClient): Promise<RoomInfo[]> {
+      client.drain(ofType('room_list'));
+      client.send({ type: 'list_rooms' });
+      const resp = await client.waitFor(ofType('room_list'), 3000, 'room_list');
+      return (resp.rooms ?? []) as RoomInfo[];
+    }
+
+    /**
+     * Poll the directory until pred holds. Server-side close handling can
+     * lag the client's own 'close' by a few ms, so post-disconnect
+     * assertions retry instead of racing it (same rationale as
+     * joinRoomWithRetry).
+     */
+    async function fetchRoomsUntil(
+      client: BridgeClient,
+      pred: (rooms: RoomInfo[]) => boolean,
+      attempts = 25,
+    ): Promise<RoomInfo[]> {
+      let rooms = await fetchRooms(client);
+      for (let i = 1; i < attempts && !pred(rooms); i += 1) {
+        await sleep(50);
+        rooms = await fetchRooms(client);
+      }
+      return rooms;
+    }
+
+    it('answers list_rooms on a pre-join socket with an empty directory', async () => {
+      const client = await connect();
+      expect(await fetchRooms(client)).toEqual([]);
+    });
+
+    it('lists live rooms with seated counts, live sockets, and phase', async () => {
+      const a1 = await connect();
+      await joinRoom(a1, { room: 'alpha' });
+      const a2 = await connect();
+      await joinRoom(a2, { room: 'alpha' });
+      await a1.waitFor(snapshotPhase('construction'), 3000, 'alpha construction');
+
+      const b1 = await connect();
+      const jb1 = await joinRoom(b1, { room: 'beta' });
+      expect(jb1.type).toBe('joined');
+
+      // A fresh pre-join socket sees both rooms.
+      const watcher = await connect();
+      const rooms = await fetchRooms(watcher);
+      expect(rooms).toHaveLength(2);
+      expect(rooms.find((r) => r.name === 'alpha')).toMatchObject({
+        playerCount: 2,
+        connected: 2,
+        phase: 'construction',
+      });
+      expect(rooms.find((r) => r.name === 'beta')).toMatchObject({
+        playerCount: 1,
+        connected: 1,
+        phase: 'waiting',
+      });
+
+      // A seated socket can ask too — lobby-level means any connection.
+      expect(await fetchRooms(b1)).toHaveLength(2);
+    });
+
+    it('keeps a dropped seat in playerCount and drops the room on teardown', async () => {
+      const a1 = await connect();
+      await joinRoom(a1, { room: 'alpha' });
+      const a2 = await connect();
+      await joinRoom(a2, { room: 'alpha' });
+      await a1.waitFor(snapshotPhase('construction'), 3000, 'alpha construction');
+
+      const watcher = await connect();
+      await a1.close();
+      // The seat lingers (isConnected=false, reclaimable via token) but
+      // the live-socket count drops immediately on the server close.
+      let rooms = await fetchRoomsUntil(
+        watcher,
+        (rs) => rs.find((r) => r.name === 'alpha')?.connected === 1,
+      );
+      expect(rooms.find((r) => r.name === 'alpha')).toMatchObject({
+        playerCount: 2,
+        connected: 1,
+        phase: 'construction',
+      });
+
+      await a2.close();
+      rooms = await fetchRoomsUntil(watcher, (rs) => !rs.some((r) => r.name === 'alpha'));
+      expect(rooms.some((r) => r.name === 'alpha')).toBe(false);
+    });
+  });
+
+  /**
    * Wave-11 T2: `rematch` is a transport-level room intent — both seated
    * players must vote while the game is over; the second vote swaps a fresh
    * NerdiClashGame in with the same sessionIds/roles/tokens. Tests force
