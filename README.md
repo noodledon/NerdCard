@@ -2,14 +2,14 @@
 
 A mathematically-driven strategic card game where players construct functions, manipulate expressions, and attack each other's math. The live MVP is **NerdiClash**, a 2-player authoritative-server mode.
 
-> Design docs: `docs/gameplay-flow.md` · Master plan: `.sisyphus/plans/nerdicard-dev-plan.md` · QA findings: `report.md`
+> Design docs: `docs/gameplay-flow.md` · Master plan: `.sisyphus/completed/nerdicard-dev-plan.md` · QA findings: `report.md`
 
 ## Stack
 
 | Layer | Tech | Role |
 |-------|------|------|
 | Server | Node.js + TypeScript + Colyseus | Authoritative rules engine |
-| Math | mathjs + optional SymPy service | Local math plus symbolic integration, limits, continuity, RREF, and rank |
+| Math | mathjs + optional SymPy service | Local math (pure-TS polynomial integrate/limit) plus symbolic integration, limits, continuity, RREF, and rank |
 | Client | Godot 4.7 + GDScript | Dumb UI — renders server state, sends intents |
 | Tests | vitest | Server-side unit/integration tests |
 
@@ -35,7 +35,8 @@ NerdiClash server listening on :2567
 ```bash
 cd server
 npm run typecheck    # tsc --noEmit
-npm test             # vitest (175 tests)
+npm test             # vitest (500+ tests)
+npm run test:coverage # vitest + v8 coverage gate (lines/stmts 78, funcs 84, branches 74)
 ```
 
 ### SymPy mode
@@ -81,9 +82,9 @@ Main scene: `client/game.tscn`. Autoloads: `GameModel`, `ConnectionManager`.
 - **Two transports, one game core**
   - Colyseus native: `ws://localhost:2567`, room `nerdiclash`
   - JSON WebSocket bridge (what Godot uses): `ws://localhost:2568`
-- **Join handshake (bridge):** client sends `join_room` → server replies `joined` with `sessionId` and `role`.
-- **Wire protocol:** gameplay intents are validated against `server/src/shared/messages.ts` (Zod). The ten client message types are `build_function`, `play_card`, `draw_cards`, `set_trap`, `play_defense`, `eval_function`, `force_eval`, `end_turn`, `ready_inst`, and `leave_room`.
-- **State snapshots** stream every 100ms and hide the opponent's hand/deck (`server/src/state/schema.ts` uses `@filter()` for hidden information).
+- **Join handshake (bridge):** client sends `join_room` → server replies `joined` with `sessionId`, `role`, and a `reconnectToken`; rejoin requires the `sessionId` + token pair. A ~10s WS heartbeat drops dead sockets and frees their seats.
+- **Wire protocol:** gameplay intents are validated against `server/src/shared/messages.ts` (Zod) and serialized through a per-game queue. The ten client message types are `build_function`, `play_card`, `draw_cards`, `set_trap`, `play_defense`, `eval_function`, `force_eval`, `end_turn`, `ready_inst`, and `leave_room`. Server→client: `state_snapshot`, `game_event`, `defense_resumed`, and a dedicated `game_over` frame on win.
+- **State snapshots** stream every 100ms and hide the opponent's hand/deck/trap card (opponent sees a `trapSet` boolean instead).
 - **Games are ephemeral** — no database, no persistence.
 
 ## Project layout
@@ -112,8 +113,11 @@ docs/
 sympy-service/     # FastAPI/SymPy calculator service
 
 .sisyphus/
-  plans/nerdicard-dev-plan.md # Master development plan
-  drafts/                     # Per-wave breakdowns
+  drafts/                     # Active wave task breakdowns
+  completed/                  # Executed plans ([COMPLETED] header + summary)
+  docs/                       # Reference docs
+  evidence/                   # QA/playtest artifacts
+  prompts/                    # Self-contained agent task prompts
 ```
 
 ## Development workflow
