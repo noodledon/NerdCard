@@ -209,7 +209,7 @@ async function joinRoomWithRetry(
 }
 
 async function joinTwoPlayers(): Promise<{
-  c1: BridgeClient; c2: BridgeClient; sid1: string; sid2: string;
+  c1: BridgeClient; c2: BridgeClient; sid1: string; sid2: string; tok1: string; tok2: string;
 }> {
   const c1 = await connect();
   const j1 = await joinRoom(c1);
@@ -217,16 +217,22 @@ async function joinTwoPlayers(): Promise<{
   const c2 = await connect();
   const j2 = await joinRoom(c2);
   expect(j2.type).toBe('joined');
-  return { c1, c2, sid1: String(j1.sessionId), sid2: String(j2.sessionId) };
+  return {
+    c1, c2,
+    sid1: String(j1.sessionId), sid2: String(j2.sessionId),
+    tok1: String(j1.reconnectToken), tok2: String(j2.reconnectToken),
+  };
 }
 
 describe('JsonBridgeServer', () => {
-  it('answers join_room with joined {sessionId, role}', async () => {
+  it('answers join_room with joined {sessionId, role, reconnectToken}', async () => {
     const client = await connect();
     const joined = await joinRoom(client);
     expect(joined.type).toBe('joined');
     expect(typeof joined.sessionId).toBe('string');
     expect(joined.role).toBe('p1');
+    expect(typeof joined.reconnectToken).toBe('string');
+    expect(String(joined.reconnectToken).length).toBeGreaterThan(0);
   });
 
   it('assigns p2 to the second join and broadcasts the construction snapshot', async () => {
@@ -298,13 +304,13 @@ describe('JsonBridgeServer', () => {
     expect(Array.isArray(players2[sid2]?.hand)).toBe(true);
   });
 
-  it('restores the seat when a disconnected client rejoins with its sessionId', async () => {
-    const { c1, sid1, sid2 } = await joinTwoPlayers();
+  it('restores the seat when a disconnected client rejoins with sessionId + reconnectToken', async () => {
+    const { c1, sid1, sid2, tok1 } = await joinTwoPlayers();
     await c1.waitFor(snapshotPhase('construction'), 3000, 'construction snapshot');
 
     await c1.close();
 
-    const { client: rejoined, msg } = await joinRoomWithRetry({ sessionId: sid1, displayName: 'tester' });
+    const { client: rejoined, msg } = await joinRoomWithRetry({ sessionId: sid1, reconnectToken: tok1, displayName: 'tester' });
     expect(msg.type).toBe('joined');
     expect(msg.sessionId).toBe(sid1);
     expect(msg.role).toBe('p1');
@@ -313,6 +319,79 @@ describe('JsonBridgeServer', () => {
     const players = snapshotState(snap).players ?? {};
     expect(Object.keys(players)).toEqual([sid1, sid2]);
     expect(players[sid1]?.isConnected).toBe(true);
+  });
+
+  it('rejects a seat reclaim that omits the reconnectToken — and keeps the seat reserved', async () => {
+    const { c1, sid1, tok1 } = await joinTwoPlayers();
+    await c1.waitFor(snapshotPhase('construction'), 3000, 'construction snapshot');
+    await c1.close();
+
+    // A bare sessionId is guessable (json-N) — it must NOT reclaim the seat.
+    // The rejection surfaces as ROOM_FULL, identical to any other fresh join
+    // against a full room, so a probe learns nothing about the seat's state.
+    const attacker = await connect();
+    const resp = await joinRoom(attacker, { sessionId: sid1 });
+    expect(resp.type).toBe('error');
+    expect(resp.code).toBe(ErrorCode.ROOM_FULL);
+
+    const { msg } = await joinRoomWithRetry({ sessionId: sid1, reconnectToken: tok1 });
+    expect(msg.type).toBe('joined');
+    expect(msg.sessionId).toBe(sid1);
+  });
+
+  it('rejects a seat reclaim with a wrong reconnectToken', async () => {
+    const { c1, sid1, tok1 } = await joinTwoPlayers();
+    await c1.waitFor(snapshotPhase('construction'), 3000, 'construction snapshot');
+    await c1.close();
+
+    const attacker = await connect();
+    const resp = await joinRoom(attacker, { sessionId: sid1, reconnectToken: 'forged-token' });
+    expect(resp.type).toBe('error');
+    expect(resp.code).toBe(ErrorCode.ROOM_FULL);
+
+    const { msg } = await joinRoomWithRetry({ sessionId: sid1, reconnectToken: tok1 });
+    expect(msg.type).toBe('joined');
+    expect(msg.sessionId).toBe(sid1);
+  });
+
+  it('keeps live sockets and terminates dead ones in the heartbeat sweep', async () => {
+    const { c1, c2, sid1, tok1 } = await joinTwoPlayers();
+    await c1.waitFor(snapshotPhase('construction'), 3000, 'construction snapshot');
+
+    const internals = bridge as unknown as {
+      clients: Map<string, { ws: WebSocket }>;
+      socketLiveness: WeakMap<WebSocket, boolean>;
+      runHeartbeat(): void;
+    };
+    const ws1 = internals.clients.get(sid1)?.ws;
+    expect(ws1).toBeDefined();
+
+    // A responsive client pongs automatically between sweeps and survives.
+    // Each sweep marks every socket false and pings; the sleep lets the
+    // auto-pongs flip them back to true before the next sweep checks.
+    internals.runHeartbeat();
+    await sleep(50);
+    internals.runHeartbeat();
+    expect(ws1?.readyState).toBe(WebSocket.OPEN);
+    await sleep(50);
+
+    // Simulate a half-open peer: the last interval's pong never arrived, so
+    // the next sweep terminates the socket and frees the seat. The flag set
+    // and the sweep are synchronous — no in-flight pong can interleave.
+    internals.socketLiveness.set(ws1 as WebSocket, false);
+    internals.runHeartbeat();
+    await c1.close();
+
+    const gone = await c2.waitForNext(
+      (msg) => isSnapshot(msg) && snapshotState(msg).players?.[sid1]?.isConnected === false,
+      3000,
+      'disconnect snapshot',
+    );
+    expect(gone.type).toBe('state_snapshot');
+
+    const { msg } = await joinRoomWithRetry({ sessionId: sid1, reconnectToken: tok1 });
+    expect(msg.type).toBe('joined');
+    expect(msg.sessionId).toBe(sid1);
   });
 
   it('tears the game down once every client disconnects', async () => {

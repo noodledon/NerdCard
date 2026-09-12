@@ -1,4 +1,5 @@
 import http from 'http';
+import { randomUUID } from 'node:crypto';
 import { WebSocket, WebSocketServer } from 'ws';
 import { NerdiClashGame } from './rooms/NerdiClashGame.js';
 import { Phase } from './logic/fsm.js';
@@ -11,6 +12,14 @@ interface JsonClient {
   role: 'p1' | 'p2';
 }
 
+/**
+ * Liveness probe cadence. A socket that fails to pong within one interval is
+ * terminated at the next — dead peers free their seats within ~2 intervals.
+ * Godot's WebSocketPeer answers protocol pings automatically, so no client
+ * work is needed for this.
+ */
+const HEARTBEAT_INTERVAL_MS = 10_000;
+
 export class JsonBridgeServer {
   private wss: WebSocketServer | undefined;
   private game: NerdiClashGame | undefined;
@@ -18,13 +27,25 @@ export class JsonBridgeServer {
   private nextSessionId = 1;
   private snapshotInterval: ReturnType<typeof setInterval> | undefined;
   private tickInterval: ReturnType<typeof setInterval> | undefined;
+  private heartbeatInterval: ReturnType<typeof setInterval> | undefined;
   private httpServer: http.Server | undefined;
+  /**
+   * Seat-ownership proof: sessionId → token issued at join. sessionIds are
+   * sequential (`json-N`) and trivially guessable, so reclaim requires the
+   * unguessable token the original holder received inside `joined`. Entries
+   * die with the game — a torn-down room has no reclaimable seats.
+   */
+  private readonly reconnectTokens = new Map<string, string>();
+  /** Last-seen-pong flag per socket for the heartbeat sweep. */
+  private readonly socketLiveness = new WeakMap<WebSocket, boolean>();
 
   start(port: number): void {
     this.httpServer = http.createServer();
     this.wss = new WebSocketServer({ server: this.httpServer });
 
     this.wss.on('connection', (ws) => {
+      this.socketLiveness.set(ws, true);
+      ws.on('pong', () => { this.socketLiveness.set(ws, true); });
       ws.on('message', (data) => { void this.handleMessage(ws, data); });
       ws.on('close', () => this.handleDisconnect(ws));
       ws.on('error', (err) => console.error('[JsonBridge] WebSocket error:', err));
@@ -36,6 +57,7 @@ export class JsonBridgeServer {
 
     this.snapshotInterval = setInterval(() => this.broadcastSnapshots(), 100);
     this.tickInterval = setInterval(() => this.game?.tick(Date.now()), 250);
+    this.heartbeatInterval = setInterval(() => this.runHeartbeat(), HEARTBEAT_INTERVAL_MS);
   }
 
   private async handleMessage(ws: WebSocket, data: unknown): Promise<void> {
@@ -127,17 +149,22 @@ export class JsonBridgeServer {
     const displayName = typeof msg.displayName === 'string' ? msg.displayName : undefined;
 
     // Reconnection: if the client sends back a sessionId that belongs to a
-    // currently-disconnected player, restore their seat instead of rejecting
-    // the join as ROOM_FULL. This mirrors the Colyseus room's reconnection
-    // window (allowReconnection) which the raw JSON path otherwise lacks.
+    // currently-disconnected player AND the reconnectToken issued with that
+    // seat, restore the seat instead of rejecting the join as ROOM_FULL.
+    // This mirrors the Colyseus room's reconnection window (allowReconnection)
+    // which the raw JSON path otherwise lacks. The token is required because
+    // sessionIds are sequential and guessable — without it any third
+    // connection could claim a dropped seat and receive its private hand.
     const rejoinId = typeof msg.sessionId === 'string' ? msg.sessionId : undefined;
-    if (rejoinId && !this.clients.has(rejoinId)) {
+    const rejoinToken = typeof msg.reconnectToken === 'string' ? msg.reconnectToken : undefined;
+    const seatToken = rejoinId ? this.reconnectTokens.get(rejoinId) : undefined;
+    if (rejoinId && seatToken !== undefined && rejoinToken === seatToken && !this.clients.has(rejoinId)) {
       const existing = this.game.getPlayer(rejoinId);
       if (existing && !existing.isConnected) {
         this.game.reconnectPlayer(rejoinId, displayName);
         const role: 'p1' | 'p2' = [...this.game.state.players.keys()][0] === rejoinId ? 'p1' : 'p2';
         this.clients.set(rejoinId, { ws, sessionId: rejoinId, role });
-        this.send(ws, { type: 'joined', sessionId: rejoinId, role });
+        this.send(ws, { type: 'joined', sessionId: rejoinId, role, reconnectToken: seatToken });
         this.sendDefenseResumedIfNeeded(ws);
         this.broadcastSnapshots();
         return;
@@ -151,12 +178,14 @@ export class JsonBridgeServer {
     }
 
     const sessionId = `json-${this.nextSessionId++}`;
+    const reconnectToken = randomUUID();
     const role: 'p1' | 'p2' = this.game.playerCount() === 0 ? 'p1' : 'p2';
 
     this.game.addPlayer(sessionId, displayName ?? sessionId);
+    this.reconnectTokens.set(sessionId, reconnectToken);
     this.clients.set(sessionId, { ws, sessionId, role });
 
-    this.send(ws, { type: 'joined', sessionId, role });
+    this.send(ws, { type: 'joined', sessionId, role, reconnectToken });
     this.sendDefenseResumedIfNeeded(ws);
 
     if (this.game.playerCount() === 2) {
@@ -180,6 +209,25 @@ export class JsonBridgeServer {
     // player state) lets a fresh game start cleanly on the next join.
     if (this.clients.size === 0) {
       this.game = undefined;
+      this.reconnectTokens.clear();
+    }
+  }
+
+  /**
+   * Ping every socket; terminate any that failed to pong since the last
+   * sweep. terminate() fires the socket's 'close' event, so a dead peer
+   * flows through handleDisconnect like a clean drop — its seat becomes
+   * reclaimable and the all-disconnected teardown can still trigger.
+   */
+  private runHeartbeat(): void {
+    if (!this.wss) return;
+    for (const ws of this.wss.clients) {
+      if (this.socketLiveness.get(ws) === false) {
+        ws.terminate();
+        continue;
+      }
+      this.socketLiveness.set(ws, false);
+      ws.ping();
     }
   }
 
@@ -267,6 +315,11 @@ export class JsonBridgeServer {
       clearInterval(this.tickInterval);
       this.tickInterval = undefined;
     }
+    if (this.heartbeatInterval) {
+      clearInterval(this.heartbeatInterval);
+      this.heartbeatInterval = undefined;
+    }
+    this.reconnectTokens.clear();
     this.wss?.close();
     this.wss = undefined;
     this.httpServer?.close();
