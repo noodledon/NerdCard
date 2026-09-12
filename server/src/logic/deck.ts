@@ -104,19 +104,31 @@ export type DrawFromDeckResult<Card> =
   | { ok: true; card: Card }
   | { ok: false; code: 'DECK_EMPTY' };
 
-/** Draw with deterministic injectable reshuffling when the draw pile is empty. */
+/**
+ * Draw with deterministic injectable reshuffling when the draw pile is empty.
+ * Draws come off the END (pop) — the inverse of Deck.draw()'s shift off the
+ * front. Both ends are equivalent once the pile is shuffled; kept as-is for
+ * stability rather than changing either convention mid-flight.
+ */
 export function drawFromDeck<Card>(
   deck: MutableDeckZone<Card>,
   graveyard: MutableDeckZone<Card>,
   rng: () => number = Math.random,
+  accepts: (card: Card) => boolean = () => true,
 ): DrawFromDeckResult<Card> {
   if (deck.length === 0) {
     if (graveyard.length === 0) return { ok: false, code: 'DECK_EMPTY' };
-    let card = graveyard.shift();
-    while (card !== undefined) {
-      deck.push(card);
-      card = graveyard.shift();
+    // Only cards the deck accepts are reshuffled into it — the graveyard is
+    // shared, so other decks' cards (and Anchors) must not contaminate this
+    // pile. Rejected cards rotate to the back of the graveyard.
+    const candidates = graveyard.length;
+    for (let count = 0; count < candidates; count += 1) {
+      const card = graveyard.shift();
+      if (card === undefined) break;
+      if (accepts(card)) deck.push(card);
+      else graveyard.push(card);
     }
+    if (deck.length === 0) return { ok: false, code: 'DECK_EMPTY' };
     for (let index = deck.length - 1; index > 0; index -= 1) {
       const swapIndex = Math.floor(rng() * (index + 1));
       const current = deck[index];

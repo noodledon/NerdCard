@@ -43,7 +43,8 @@ export class EvalCommand extends GameCommand<EvalPayload> {
       });
       return success({ boardDestroyed: true });
     }
-    player.hp10 += Math.floor(result.hpGain10);
+    // Floor at 0 — a negative evaluation must not drive HP below zero.
+    player.hp10 = Math.max(0, player.hp10 + Math.floor(result.hpGain10));
     if (result.hpGain10 > 0) player.everGainedHP = true;
     player.evaluatedThisTurn = true;
     moveCardToGraveyard(player, vvcCardId);

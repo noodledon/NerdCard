@@ -169,6 +169,9 @@ export class NerdiClashGame {
     } else if (previousPhase === Phase.resolution && phase === Phase.draw) {
       this.rotateTurnOwner();
     }
+    if (fsmEvents.includes('game-over')) {
+      this.resolveConstructionAbandonment();
+    }
     this.runCheckWin();
   }
 
@@ -179,7 +182,10 @@ export class NerdiClashGame {
   // ─── Intent dispatch ───────────────────────────────────────────────────────
 
   dispatchIntent(sessionId: string, intent: string, payload: Record<string, unknown>): CommandResult | Promise<CommandResult> {
-    if (this.state.winner) {
+    // gameOver without a winner (abandoned construction) must also refuse
+    // intents — every per-intent phase check would reject anyway, but the
+    // reason should say the game is over, not misreport the phase.
+    if (this.state.winner || this.state.phase === Phase.gameOver) {
       return { ok: false, reason: 'game is over' };
     }
 
@@ -644,6 +650,24 @@ export class NerdiClashGame {
     });
     if (!result.winner) return;
     this.declareWinner(result.winner, result.loser, WIN_REASON_BY_ENGINE[result.reason ?? ''] ?? '');
+  }
+
+  /**
+   * Construction deadline elapsed with incomplete submissions — the FSM's
+   * AFK safeguard already moved the game to gameOver. A lone submitter wins
+   * by abandonment; with zero submissions the game ends a documented draw
+   * (phase gameOver, no winner, winReason 'abandoned').
+   */
+  private resolveConstructionAbandonment(): void {
+    const submissions = this.phaseController.fsm.state.buildSubmissions;
+    const submitter = [...this.state.players.keys()].find((id) => submissions?.get(id) === true);
+    if (submitter) {
+      const loser = [...this.state.players.keys()].find((id) => id !== submitter);
+      this.declareWinner(submitter, loser, 'abandoned');
+      return;
+    }
+    this.state.winReason = 'abandoned';
+    this.emitGameEvent('game_over', '', { winner: null, loser: '', winReason: 'abandoned' });
   }
 
   /**

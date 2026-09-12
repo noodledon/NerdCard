@@ -39,13 +39,15 @@ describe('evaluation engine', () => {
     expect(result.redistributions).toEqual([{ from: 'A', to: 'B', hp10Transferred: 50 }]);
   });
 
-  it('transfers floored half HP after domination', () => {
+  it('declares the dominator the winner without transferring HP', () => {
     const a = { id: 'A', hp10: 100, lastForceValue: 100, boards: [{}] };
     const b = { id: 'B', hp10: 305, lastForceValue: 30, boards: [{}] };
     const result = forceEval({ players: [a, b] }, { nominatorId: 'A' });
     expect(result.winner).toBe('A');
-    expect(result.redistributions).toEqual([{ from: 'B', to: 'A', hp10Transferred: 1520 }]);
-    expect(a.hp10).toBe(1620);
-    expect(b.hp10).toBe(0);
+    // Domination wins outright — no HP moves and no board is destroyed.
+    expect(result.redistributions).toEqual([]);
+    expect(result.nominatorBoardDestroyed).toBe(false);
+    expect(a.hp10).toBe(100);
+    expect(b.hp10).toBe(305);
   });
 });
