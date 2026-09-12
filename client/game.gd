@@ -170,6 +170,16 @@ var _leave_button: Button
 var _mode_option_button: OptionButton
 var _mode_badge_label: Label
 
+## Isolation countdown badges — one code-built Label per PlayerPanel's
+## CardInner (same overlay convention; PlayerPanel.tscn untouched). The
+## snapshot root's variable_isolation_timers is a {sessionId: turnsLeft}
+## map, public to both seats; a player appears in it only while their
+## countdown runs, and the server deletes the entry when the net breaks
+## (wave-13 M5 — the Variable Isolation kill window needs a visible
+## countdown on the affected player).
+var _isolation_badge_local: Label
+var _isolation_badge_opponent: Label
+
 ## Rematch button, code-built into the scene's GameOverVBox in _ready (same
 ## convention as the defense banner — game.tscn untouched). Rematch votes
 ## ride the game_event stream, not snapshots, so the opponent's vote is
@@ -199,6 +209,7 @@ func _ready() -> void:
 	_build_leave_button()
 	_build_mode_picker()
 	_build_mode_badge()
+	_build_isolation_badges()
 	_build_rematch_button()
 	_render_from_model()
 
@@ -272,6 +283,25 @@ func _build_mode_badge() -> void:
 ## Wire GameMode → display label; unknown values pass through verbatim.
 func _mode_label(mode: String) -> String:
 	return String(MODE_LABELS.get(mode, mode))
+
+
+## One "isolated: N turns left" readout per player, parked inside the
+## panel's CardInner right after TrapSlotIndicator (index 4 — above the
+## function-board slots). Hidden until a timer entry exists for that seat.
+func _build_isolation_badges() -> void:
+	_isolation_badge_local = _make_isolation_badge(local_panel)
+	_isolation_badge_opponent = _make_isolation_badge(opponent_panel)
+
+
+func _make_isolation_badge(panel: PlayerPanel) -> Label:
+	var badge := Label.new()
+	badge.add_theme_font_size_override("font_size", 13)
+	badge.add_theme_color_override("font_color", PHASE_COLORS["defense"])
+	badge.visible = false
+	var inner: VBoxContainer = panel.get_node("Card/CardInner")
+	inner.add_child(badge)
+	inner.move_child(badge, 4)
+	return badge
 
 
 ## The picker's wire value — the selected item's metadata, defaulting to
@@ -426,6 +456,7 @@ func _render_from_model() -> void:
 	_render_defense_banner(phase, state)
 	_render_game_over(phase, state)
 	_render_mode_badge(state)
+	_render_isolation_badges(state, local_player, opponent_player)
 
 
 ## Drops selection ids whose card has left the hand (consumed by a
@@ -814,6 +845,29 @@ func _render_mode_badge(state: Dictionary) -> void:
 	_mode_badge_label.visible = mode != ""
 	if mode != "":
 		_mode_badge_label.text = "Mode: %s" % _mode_label(mode)
+
+
+## Per-player isolation countdown, only while state.mode is
+## variable_isolation: variable_isolation_timers[sessionId] is the
+## game-turns left before the isolation kill. The entry exists only while
+## that player's countdown runs — hidden otherwise, so the badge
+## disappears the turn an escape lands (server-side delete, not a guess).
+## Player dicts carry sessionId on both seats (snapshot field, not
+## privacy-stripped), so the same lookup serves local and opponent.
+func _render_isolation_badges(state: Dictionary, local_player: Dictionary, opponent_player: Dictionary) -> void:
+	var timers: Dictionary = state.get("variable_isolation_timers", {})
+	if String(state.get("mode", "")) != "variable_isolation":
+		timers = {}
+	_render_isolation_badge(_isolation_badge_local, timers, local_player)
+	_render_isolation_badge(_isolation_badge_opponent, timers, opponent_player)
+
+
+func _render_isolation_badge(badge: Label, timers: Dictionary, player: Dictionary) -> void:
+	var session_id: String = String(player.get("sessionId", ""))
+	var turns_left: Variant = timers.get(session_id) if session_id != "" else null
+	badge.visible = turns_left != null
+	if turns_left != null:
+		badge.text = "isolated: %d turns left" % int(turns_left)
 
 
 func _render_deck_counts(local_player: Dictionary) -> void:
