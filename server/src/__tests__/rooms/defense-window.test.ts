@@ -194,13 +194,15 @@ describe('defense window', () => {
     game.tick(game.state.turnDeadline + 1);
     expect(game.state.phase).toBe(Phase.defense);
     expect(game.state.pendingAttackTargetId).toBe('p2');
-    expect(game.state.pendingAttackDamage10).toBe(5);
+    // Catalog damage:5 reads as display HP → 50 hp10 (see commands/base.ts
+    // catalogParams; wave-9 T3 killed the 0.5-HP units bug).
+    expect(game.state.pendingAttackDamage10).toBe(50);
     expect(game.state.currentTurnPlayerId).toBe('p1');
     expect(p2.hp10).toBe(100);
 
     // The defense deadline then lands the attack on a later tick.
     game.tick(game.state.turnDeadline + 1);
-    expect(p2.hp10).toBe(95);
+    expect(p2.hp10).toBe(50);
     expect(game.state.phase).toBe(Phase.draw);
     expect(game.state.currentTurnPlayerId).toBe('p2');
     expect(game.state.pendingAttackTargetId).toBe('');

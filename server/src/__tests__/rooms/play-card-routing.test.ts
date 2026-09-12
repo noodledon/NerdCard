@@ -102,6 +102,21 @@ describe('play_card routing', () => {
     },
   );
 
+  it('sources Martial Theorem damage from the catalog, not a hardcode', async () => {
+    const game = gameInPlay();
+    giveCard(game, 'p1', 'act-martial-theorem-001');
+
+    const result = await Promise.resolve(game.dispatchIntent('p1', 'play_card', {
+      cardId: 'act-martial-theorem-001',
+      target: { kind: 'opp', id: 'p2' },
+    }));
+
+    // Catalog damage:8 (display HP) → 80 hp10; toCommandIntent carries no
+    // damage field at all anymore.
+    expect(result).toMatchObject({ ok: true, damage10: 80, pending: true });
+    expect(game.state.pendingAttackDamage10).toBe(80);
+  });
+
   it('gives every player the five documented Variable Anchor cards at setup', () => {
     const game = new NerdiClashGame();
     const player = game.addPlayer('p1', 'Player One');

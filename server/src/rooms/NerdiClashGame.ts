@@ -1,5 +1,5 @@
 import { GameRoomState, PlayerSchema, FunctionBoardSchema, addToHand, catalogCardToSchema, shuffleArraySchema } from '../state/schema.js';
-import { loadCatalog } from '../data/load-catalog.js';
+import { catalogEffectParams, loadCatalog } from '../data/load-catalog.js';
 import { Phase } from '../logic/fsm.js';
 import type { BaseDomain } from '../shared/types.js';
 import { PhaseController } from './phaseController.js';
@@ -27,13 +27,6 @@ const WIN_REASON_BY_ENGINE: Record<string, string> = {
 
 /** Catalog id → display name, used to enrich hand entries in snapshots. */
 const CARD_NAME_BY_ID = new Map(loadCatalog().map((card) => [card.id, card.name]));
-
-/**
- * Catalog id → effectParams. catalogCardToSchema deliberately drops
- * effectParams (CardSchema field-count guard), so card commands re-join them
- * here at the routing layer — never read them off CardSchema.
- */
-const CARD_EFFECT_PARAMS_BY_ID = new Map(loadCatalog().map((card) => [card.id, card.effectParams]));
 
 /** play_card cardTypes that toCommandIntent already routes to a command. */
 const ROUTED_PLAY_CARD_TYPES = new Set([
@@ -790,7 +783,9 @@ export class NerdiClashGame {
           case 'offensive':
             return { intent: 'attack-hp', payload: attackPayload };
           case 'martialTheorem':
-            return { intent: 'theorem-martial', payload: { ...attackPayload, damage10: 8 } };
+            // Damage comes from the catalog join inside AttackHpCommand
+            // (effectParams.damage ×10) — no hardcode here.
+            return { intent: 'theorem-martial', payload: attackPayload };
           case 'trap':
             return { intent: 'trap', payload: { playerId, trapCardId: cardId } };
           case 'artifactTheorem':
@@ -835,14 +830,14 @@ export class NerdiClashGame {
           case 'limit':
             return { intent: 'limit', payload: { playerId, cardId, boardId } };
           case 'modular': {
-            const modulus = CARD_EFFECT_PARAMS_BY_ID.get(cardId)?.modulus;
+            const modulus = catalogEffectParams(cardId)?.modulus;
             if (typeof modulus !== 'number' || !Number.isInteger(modulus) || modulus <= 0) {
               return { ok: false, reason: 'modular modulus unavailable' };
             }
             return { intent: 'modular', payload: { playerId, cardId, boardId, modulus } };
           }
           case 'ntTheorem': {
-            const theorem = CARD_EFFECT_PARAMS_BY_ID.get(cardId)?.theorem;
+            const theorem = catalogEffectParams(cardId)?.theorem;
             if (typeof theorem !== 'string' || theorem === '') {
               return { ok: false, reason: 'nt theorem unavailable' };
             }
@@ -858,7 +853,7 @@ export class NerdiClashGame {
             };
           }
           case 'vector': {
-            const params = CARD_EFFECT_PARAMS_BY_ID.get(cardId);
+            const params = catalogEffectParams(cardId);
             const values = params?.values;
             const dim = params?.dim;
             if (
@@ -880,7 +875,7 @@ export class NerdiClashGame {
             };
           }
           case 'matrix': {
-            const expression = CARD_EFFECT_PARAMS_BY_ID.get(cardId)?.expr;
+            const expression = catalogEffectParams(cardId)?.expr;
             if (typeof expression !== 'string' || expression === '') {
               return { ok: false, reason: 'matrix expression unavailable' };
             }
@@ -895,7 +890,7 @@ export class NerdiClashGame {
             };
           }
           case 'transform': {
-            const kind = CARD_EFFECT_PARAMS_BY_ID.get(cardId)?.kind;
+            const kind = catalogEffectParams(cardId)?.kind;
             if (typeof kind !== 'string' || kind === '') {
               return { ok: false, reason: 'transform kind unavailable' };
             }

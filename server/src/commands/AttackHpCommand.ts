@@ -1,6 +1,7 @@
 import {
   bindFactor,
   cardNumericValue,
+  catalogParams,
   failure,
   findCard,
   findBoard,
@@ -59,7 +60,18 @@ export class AttackHpCommand extends GameCommand<AttackHpPayload> {
       factor = cardNumericValue(numberCard);
       bindFactor(player, payload.numberCardId, payload.cardId);
     }
-    const damage10 = Math.max(0, Math.floor((payload.damage10 ?? 5) * factor));
+    // Units pin: catalog `damage` is written in display HP, so ×10 lands it
+    // in hp10 (damage:5 → 50). `scaleWithBoardValue` is deliberately ignored —
+    // v1 damage is flat from params; board-value scaling is deferred.
+    // payload.damage10 is a test-harness override only — no wire field
+    // reaches it (PlayCardSchema has no such member and toCommandIntent never
+    // copies one). Cards with no catalog damage keep the legacy flat 5.
+    const catalogDamage = catalogParams(card)?.damage;
+    const baseDamage10 = payload.damage10
+      ?? (typeof catalogDamage === 'number' && Number.isFinite(catalogDamage)
+        ? Math.floor(catalogDamage * 10)
+        : 5);
+    const damage10 = Math.max(0, Math.floor(baseDamage10 * factor));
     state.pendingAttackDamage10 = damage10;
     state.pendingAttackSourceId = payload.playerId;
     state.pendingAttackTargetId = target.sessionId ?? target.id ?? '';

@@ -75,6 +75,34 @@ describe('deferred attack resolution', () => {
     }]);
   });
 
+  it('reads damage from the catalog entry keyed by card.id, not the wire', () => {
+    const p1 = player('p1', [{ id: 'act-offensive-001', cardType: 'offensive' }]);
+    const p2 = player('p2');
+    const gameState = state([p1, p2]);
+    const command = new AttackHpCommand();
+    command.state = gameState;
+
+    // No damage10 override: catalog damage:5 (display HP) → 50 hp10.
+    const result = command.execute({ playerId: 'p1', cardId: 'act-offensive-001', targetPlayerId: 'p2' });
+
+    expect(result).toEqual({ ok: true, damage10: 50, pending: true });
+    expect(gameState.pendingAttackDamage10).toBe(50);
+  });
+
+  it('keeps payload.damage10 as a test-harness override over the catalog', () => {
+    const p1 = player('p1', [{ id: 'act-offensive-001', cardType: 'offensive' }]);
+    const p2 = player('p2');
+    const gameState = state([p1, p2]);
+    const command = new AttackHpCommand();
+    command.state = gameState;
+
+    const result = command.execute({
+      playerId: 'p1', cardId: 'act-offensive-001', targetPlayerId: 'p2', damage10: 5,
+    });
+
+    expect(result).toEqual({ ok: true, damage10: 5, pending: true });
+  });
+
   it('scales the pending damage by a bound number card', () => {
     const p1 = player('p1', [
       { id: 'atk-1', cardType: 'offensive' },
@@ -114,6 +142,23 @@ describe('defense response', () => {
     expect(gameState.pendingAttackDamage10).toBe(0);
     expect(gameState.defenseResponseUsed).toBe(true);
     expect(p1.discardGraveyard.map((card) => card.id)).toEqual(['shield-1']);
+  });
+
+  it('lets residual damage over the catalog absorb value land', () => {
+    const p1 = player('p1', [{ id: 'act-shield-001', cardType: 'shield' }]);
+    const gameState = state([p1, player('p2')], 'defense');
+    gameState.pendingAttackDamage10 = 150;
+    gameState.pendingTriggerId = 'attack_t3_atk-1';
+    const command = new PlayDefenseCommand();
+    command.state = gameState;
+
+    const result = command.execute({
+      playerId: 'p1', cardId: 'act-shield-001', targetTriggerId: 'attack_t3_atk-1',
+    });
+
+    expect(result).toEqual({ ok: true });
+    // absorb:10 (display HP) → 100 hp10 soaked; the remaining 50 still lands.
+    expect(gameState.pendingAttackDamage10).toBe(50);
   });
 
   it('frees the trap slot when the set trap is spent as a defense card', () => {

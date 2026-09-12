@@ -86,6 +86,17 @@ export function getCardById(id: string): Card {
   return card;
 }
 
+/**
+ * Catalog id → effectParams, the single shared lookup. CardSchema
+ * deliberately drops effectParams (the ≤64-field guard), so commands and the
+ * game room re-join params here — never read them off CardSchema or trust
+ * wire-sent values.
+ */
+export function catalogEffectParams(cardId: string): Record<string, unknown> | undefined {
+  loadCatalog();
+  return cached?.byId.get(cardId)?.effectParams;
+}
+
 export function getCardsByArchetype(effectType: EffectType): Card[] {
   const indexed = buildIndex(loadCatalog());
   return indexed.byArchetype.get(effectType) ?? [];
