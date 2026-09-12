@@ -7,8 +7,6 @@ describe('messages', () => {
       type: 'build_function',
       boardId: 'board-1',
       expression: 'x^2 + 3 * x',
-      variableIds: [1, 2],
-      numberCardIds: [],
     };
 
     const result = parseClientMessage(payload);
@@ -18,13 +16,27 @@ describe('messages', () => {
     }
   });
 
+  it('build_function tolerates but strips the removed variableIds/numberCardIds fields', () => {
+    const result = parseClientMessage({
+      type: 'build_function',
+      boardId: 'board-1',
+      expression: 'x^2',
+      variableIds: [1, 2],
+      numberCardIds: ['num-1'],
+    });
+
+    expect(result.ok).toBe(true);
+    if (result.ok && result.message.type === 'build_function') {
+      expect('variableIds' in result.message).toBe(false);
+      expect('numberCardIds' in result.message).toBe(false);
+    }
+  });
+
   it('build_function rejects non-string expression', () => {
     const payload = {
       type: 'build_function',
       boardId: 'board-1',
       expression: {},
-      variableIds: [],
-      numberCardIds: [],
     };
 
     const result = parseClientMessage(payload);

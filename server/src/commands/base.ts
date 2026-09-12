@@ -1,5 +1,6 @@
 import { Command } from '@colyseus/command';
 import { CardSchema } from '../state/schema.js';
+import { catalogEffectParams } from '../data/load-catalog.js';
 
 export interface CommandResult {
   ok: boolean;
@@ -256,6 +257,17 @@ export function unbindFactorOnGraveyard(
   const numberCardId = binding?.numberCardId ?? player.boundFactorNumberCardId;
   const spellId = binding?.spellId ?? player.boundFactorSpellId;
   if (cardId === numberCardId || cardId === spellId) unbindFactor(player);
+}
+
+/**
+ * A played card's catalog effectParams, joined by `card.id` through
+ * `catalogEffectParams` — CardSchema strips params, so commands must
+ * re-join them here. Unknown/test card ids simply yield undefined.
+ */
+export function catalogParams(
+  card: CommandCard | undefined,
+): Record<string, unknown> | undefined {
+  return card ? catalogEffectParams(card.id) : undefined;
 }
 
 export function cardNumericValue(card: CommandCard | undefined): number {

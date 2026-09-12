@@ -578,7 +578,11 @@ func _rebuild_hand(local_player: Dictionary) -> void:
 	var hand: Array = local_player.get("hand", [])
 	var is_local_turn: bool = GameModel.is_local_turn()
 	var phase: String = String(GameModel.state.get("phase", ""))
-	var can_play: bool = is_local_turn and phase == "play"
+	## §6 two-action cap: the server enforces 'turn action limit reached';
+	## mirroring it here just greys the hand out early. Anchor/factor cards
+	## disable too — every intent they feed is action-counting anyway.
+	var actions_used: int = int(local_player.get("actionsUsedThisTurn", 0))
+	var can_play: bool = is_local_turn and phase == "play" and actions_used < 2
 	## The defense target may only reach for reactive cards (shield/trap);
 	## everyone else's hand is inert outside their own play phase.
 	var defending: bool = phase == "defense" and _is_defense_target(GameModel.state)

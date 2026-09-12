@@ -1,5 +1,5 @@
 import { GameRoomState, PlayerSchema, FunctionBoardSchema, addToHand, catalogCardToSchema, shuffleArraySchema } from '../state/schema.js';
-import { loadCatalog } from '../data/load-catalog.js';
+import { catalogEffectParams, loadCatalog } from '../data/load-catalog.js';
 import { Phase } from '../logic/fsm.js';
 import type { BaseDomain } from '../shared/types.js';
 import { PhaseController } from './phaseController.js';
@@ -28,19 +28,24 @@ const WIN_REASON_BY_ENGINE: Record<string, string> = {
 /** Catalog id → display name, used to enrich hand entries in snapshots. */
 const CARD_NAME_BY_ID = new Map(loadCatalog().map((card) => [card.id, card.name]));
 
-/**
- * Catalog id → effectParams. catalogCardToSchema deliberately drops
- * effectParams (CardSchema field-count guard), so card commands re-join them
- * here at the routing layer — never read them off CardSchema.
- */
-const CARD_EFFECT_PARAMS_BY_ID = new Map(loadCatalog().map((card) => [card.id, card.effectParams]));
-
 /** play_card cardTypes that toCommandIntent already routes to a command. */
 const ROUTED_PLAY_CARD_TYPES = new Set([
   'addTerm', 'derivative', 'offensive', 'martialTheorem', 'trap',
   'artifactTheorem', 'forceEval', 'addBoard', 'composition', 'integral', 'limit',
   'modular', 'ntTheorem', 'vector', 'matrix', 'transform', 'eigenvalue',
 ]);
+
+/**
+ * Rulebook §6 turn economy: at most two actions per play phase, on top of
+ * the existing one-aggressive-action lockout. A wire intent in this set —
+ * any routed play_card (trap-set included), set_trap, eval_function or
+ * force_eval — consumes one action when it resolves (ok:true), fizzles
+ * included: the card was spent, the action was used. Rejected intents
+ * (ok:false) never consume. draw_cards/build_function/play_defense/
+ * end_turn/ready_inst/leave_room never count — wrong phase or lifecycle.
+ */
+const ACTION_COUNTING_INTENTS = new Set(['play_card', 'set_trap', 'eval_function', 'force_eval']);
+const MAX_ACTIONS_PER_TURN = 2;
 
 /**
  * Core game logic for NerdiClash, transport-agnostic.
@@ -230,6 +235,18 @@ export class NerdiClashGame {
       }
     }
 
+    // §6 two-action cap — after the winner/phase/ownership guards but before
+    // toCommandIntent, so a rejected or unrouted intent never burns an
+    // action. EvalCommand also permits Phase.resolution; an eval landing
+    // there is still this turn's economy (the counter only resets in
+    // requestEndTurn), so the cap counts — and can block — it here too.
+    if (ACTION_COUNTING_INTENTS.has(intent)) {
+      const player = this.state.players.get(sessionId);
+      if (player && player.actionsUsedThisTurn >= MAX_ACTIONS_PER_TURN) {
+        return { ok: false, reason: 'turn action limit reached' };
+      }
+    }
+
     const routed = this.toCommandIntent(sessionId, intent, payload);
     if (routed && 'ok' in routed) {
       return routed;
@@ -277,6 +294,13 @@ export class NerdiClashGame {
     }
     if (result.ok && !result.fizzled && (intent === 'eval_function' || intent === 'force_eval')) {
       this.phaseController.onEvalTurn();
+    }
+    // Spend one of the turn's two actions on any resolved action intent —
+    // fizzles included (the card was used). Validation failures (ok:false)
+    // don't consume.
+    if (result.ok && ACTION_COUNTING_INTENTS.has(intent)) {
+      const player = this.state.players.get(sessionId);
+      if (player) player.actionsUsedThisTurn += 1;
     }
     if (result.ok) this.runCheckWin();
     return result;
@@ -410,6 +434,7 @@ export class NerdiClashGame {
             boundFactorSpellId: player.boundFactorSpellId,
             evaluatedThisTurn: player.evaluatedThisTurn,
             actionsUsedThisTurn: player.actionsUsedThisTurn,
+            artifactTheoremActive: player.artifactTheoremActive,
             deckCounts: {
               fcc: player.deckFCC.length,
               number: player.deckNumber.length,
@@ -434,6 +459,10 @@ export class NerdiClashGame {
         delete playerData.deckNumber;
         delete playerData.deckAction;
         delete playerData.availableVariables;
+        // §16: trap content is hidden from non-owners — swap the exact card
+        // id for a boolean so the UI can still show "trap armed".
+        playerData.trapSet = typeof playerData.trapCardId === 'string' && playerData.trapCardId !== '';
+        delete playerData.trapCardId;
       }
     }
     return base;
@@ -519,12 +548,21 @@ export class NerdiClashGame {
   private applyPendingAttack(): void {
     if (this.state.pendingAttackDamage10 <= 0 && !this.state.pendingAttackTargetId) return;
     const target = this.state.players.get(this.state.pendingAttackTargetId);
+    let damage10 = this.state.pendingAttackDamage10;
+    // Euler's Ward (act-artifact-theorem-001, {persistent:true}): halves every
+    // incoming attack while active — pinned as a persistent passive, not a
+    // consume-on-hit negate. Ordering pin: shield absorb already reduced the
+    // pending amount upstream in PlayDefenseCommand, so the ward halves the
+    // residual.
+    const artifactHalved = damage10 > 0 && target?.artifactTheoremActive === true;
+    if (artifactHalved) damage10 = Math.floor(damage10 / 2);
     if (target) {
-      target.hp10 = Math.max(0, target.hp10 - this.state.pendingAttackDamage10);
+      target.hp10 = Math.max(0, target.hp10 - damage10);
     }
     this.emitGameEvent('attack_resolved', this.state.pendingAttackSourceId, {
-      damage10: this.state.pendingAttackDamage10,
+      damage10,
       targetId: this.state.pendingAttackTargetId,
+      ...(artifactHalved ? { artifactHalved: true } : {}),
     });
     this.state.pendingAttackDamage10 = 0;
     this.state.pendingAttackSourceId = '';
@@ -644,19 +682,30 @@ export class NerdiClashGame {
     this.phaseController.onEvalTurn();
   }
 
-  /** Clearer failure reason when play_card references a card with no routed command. */
+  /**
+   * Clearer failure reason when play_card references a card with no routed
+   * command. Every unrouted catalog card is a non-playable resource, not an
+   * unimplemented one — each gets a reason that says how it IS used.
+   * 'card effect not implemented in v1' is deliberately gone (unreachable).
+   */
   private unroutedPlayCardReason(sessionId: string, payload: Record<string, unknown>): string | undefined {
     const cardId = typeof payload.cardId === 'string' ? payload.cardId : undefined;
     const player = cardId ? this.state.players.get(sessionId) : undefined;
     const card = player ? [...player.hand].find((candidate) => candidate?.id === cardId) : undefined;
     if (!card || ROUTED_PLAY_CARD_TYPES.has(card.cardType)) return undefined;
+    if (card.cardType === 'prime' || card.subtype === 'Irrational') {
+      return 'number cards only take effect as bound factors — attach via numberFactorCardIds on an offensive play';
+    }
     if (card.cardType === 'eval') {
+      if (card.subtype === 'Anchor') {
+        return 'Anchors are spent by the eval_function/force_eval intent, not played';
+      }
       return 'the Evaluate card is spent automatically by the eval_function intent';
     }
     if (card.cardType === 'shield') {
       return 'shield cards are reactive — use play_defense during the defense phase';
     }
-    return 'card effect not implemented in v1';
+    return `card type '${card.cardType}' is a resource — it is never played directly`;
   }
 
   /** Owner of a boardId across all players, or undefined when no board matches. */
@@ -759,7 +808,9 @@ export class NerdiClashGame {
           case 'offensive':
             return { intent: 'attack-hp', payload: attackPayload };
           case 'martialTheorem':
-            return { intent: 'theorem-martial', payload: { ...attackPayload, damage10: 8 } };
+            // Damage comes from the catalog join inside AttackHpCommand
+            // (effectParams.damage ×10) — no hardcode here.
+            return { intent: 'theorem-martial', payload: attackPayload };
           case 'trap':
             return { intent: 'trap', payload: { playerId, trapCardId: cardId } };
           case 'artifactTheorem':
@@ -804,14 +855,14 @@ export class NerdiClashGame {
           case 'limit':
             return { intent: 'limit', payload: { playerId, cardId, boardId } };
           case 'modular': {
-            const modulus = CARD_EFFECT_PARAMS_BY_ID.get(cardId)?.modulus;
+            const modulus = catalogEffectParams(cardId)?.modulus;
             if (typeof modulus !== 'number' || !Number.isInteger(modulus) || modulus <= 0) {
               return { ok: false, reason: 'modular modulus unavailable' };
             }
             return { intent: 'modular', payload: { playerId, cardId, boardId, modulus } };
           }
           case 'ntTheorem': {
-            const theorem = CARD_EFFECT_PARAMS_BY_ID.get(cardId)?.theorem;
+            const theorem = catalogEffectParams(cardId)?.theorem;
             if (typeof theorem !== 'string' || theorem === '') {
               return { ok: false, reason: 'nt theorem unavailable' };
             }
@@ -827,7 +878,7 @@ export class NerdiClashGame {
             };
           }
           case 'vector': {
-            const params = CARD_EFFECT_PARAMS_BY_ID.get(cardId);
+            const params = catalogEffectParams(cardId);
             const values = params?.values;
             const dim = params?.dim;
             if (
@@ -849,7 +900,7 @@ export class NerdiClashGame {
             };
           }
           case 'matrix': {
-            const expression = CARD_EFFECT_PARAMS_BY_ID.get(cardId)?.expr;
+            const expression = catalogEffectParams(cardId)?.expr;
             if (typeof expression !== 'string' || expression === '') {
               return { ok: false, reason: 'matrix expression unavailable' };
             }
@@ -864,7 +915,7 @@ export class NerdiClashGame {
             };
           }
           case 'transform': {
-            const kind = CARD_EFFECT_PARAMS_BY_ID.get(cardId)?.kind;
+            const kind = catalogEffectParams(cardId)?.kind;
             if (typeof kind !== 'string' || kind === '') {
               return { ok: false, reason: 'transform kind unavailable' };
             }

@@ -7,8 +7,9 @@ export const BuildFunctionSchema = z.object({
   type: z.literal('build_function'),
   boardId: z.string().min(1).max(100),
   expression: z.string().min(1).max(500),
-  variableIds: z.array(z.number().int()).default([]),
-  numberCardIds: z.array(z.string()).default([]),
+  // variableIds/numberCardIds were removed in wave-9 T5: the variable-card
+  // construction economy was never built, so the fields were dead weight.
+  // Zod strips unknown keys, so a legacy client still sending them parses fine.
 });
 
 export const PlayCardSchema = z.object({

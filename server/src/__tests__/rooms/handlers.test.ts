@@ -112,6 +112,8 @@ describe('room message handlers', () => {
     };
     const handler = h.handlers.get('build_function');
     if (!handler) throw new Error('build_function handler missing');
+    // Removed legacy fields are tolerated at the boundary but stripped by
+    // the Zod parse — they never reach the dispatch payload.
     await handler(p2, {
       type: 'build_function', boardId: 'board-2', expression: 'x^2', variableIds: [], numberCardIds: [],
     });
@@ -119,7 +121,7 @@ describe('room message handlers', () => {
     expect(h.dispatches).toEqual([{
       intent: 'build_function',
       payload: {
-        type: 'build_function', boardId: 'board-2', expression: 'x^2', variableIds: [], numberCardIds: [],
+        type: 'build_function', boardId: 'board-2', expression: 'x^2',
       },
     }]);
   });
@@ -127,7 +129,7 @@ describe('room message handlers', () => {
   it('dispatches every canonical non-lifecycle intent after its validation contract', async () => {
     const h = harness();
     await invoke(h, 'build_function', {
-      type: 'build_function', boardId: 'board-1', expression: 'x^2', variableIds: [], numberCardIds: [],
+      type: 'build_function', boardId: 'board-1', expression: 'x^2',
     });
     await invoke(h, 'play_card', { type: 'play_card', cardId: 'card-1', target: { kind: 'none' } });
 

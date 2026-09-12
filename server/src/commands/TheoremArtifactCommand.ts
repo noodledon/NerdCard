@@ -13,6 +13,9 @@ export class TheoremArtifactCommand extends GameCommand<TheoremArtifactPayload> 
     if (!player) return failure('player not found');
     const card = requiredCard(player, cardId);
     if (isFailure(card)) return card;
+    // Euler's Ward: persistent passive — the flag is a real @type field
+    // synced to snapshots; the halving itself lives in
+    // NerdiClashGame.applyPendingAttack (after shield absorb).
     player.artifactTheoremActive = true;
     moveCardToGraveyard(player, cardId);
     return success();
