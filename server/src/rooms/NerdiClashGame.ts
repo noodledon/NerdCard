@@ -352,7 +352,9 @@ export class NerdiClashGame {
   }
 
   requestEndTurn(sessionId: string): CommandResult {
-    if (this.state.winner) {
+    // Same winnerless-gameOver guard as dispatchIntent: an abandoned
+    // construction ends in phase=gameOver with state.winner === ''.
+    if (this.state.winner || this.state.phase === Phase.gameOver) {
       return { ok: false, reason: 'game is over' };
     }
     const defenderPassing = this.state.phase === Phase.defense

@@ -1,7 +1,7 @@
 import colyseus from 'colyseus';
 import { GameRoomState, PlayerSchema } from '../state/schema.js';
 import { Phase, type Phase as FSMPhase } from '../logic/fsm.js';
-import { ErrorCode } from '../shared/ErrorCode.js';
+import { ErrorCode, errorCodeForReason } from '../shared/ErrorCode.js';
 import { registerHandlers, type HandlerClient } from './handlers.js';
 import { NerdiClashGame } from './NerdiClashGame.js';
 
@@ -174,14 +174,7 @@ export class NerdiClashRoom extends ColyseusRoom {
   }
 
   private errorCodeFor(reason: string | undefined): ErrorCode {
-    if (reason?.includes('active player') || reason?.includes('defending player')) return ErrorCode.NOT_YOUR_TURN;
-    if (reason?.includes('only in') || reason?.includes('phase')) return ErrorCode.NOT_PHASE_NOT_DRAW;
-    if (reason?.includes('deckChoices') || reason?.includes('invalid draw choices')) return ErrorCode.INVALID_PAYLOAD;
-    if (reason?.includes('aggressive action')) return ErrorCode.OFFENSIVE_LIMIT_EXCEEDED;
-    if (reason?.includes('not in player')) return ErrorCode.CARD_NOT_IN_HAND;
-    if (reason?.includes('maximum') || reason?.includes('already used')) return ErrorCode.TOO_MANY_ACTIONS;
-    if (reason?.includes('deck empty')) return ErrorCode.INVALID_TARGET;
-    return ErrorCode.INVALID_TARGET;
+    return errorCodeForReason(reason);
   }
 
   private registerPrivateView(client: NerdiClashClient, player: PlayerSchema): void {

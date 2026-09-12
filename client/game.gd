@@ -188,6 +188,8 @@ func _on_connection_error(code: String, message: String) -> void:
 		status_label.text = "Connection failed"
 	elif code == "ERR_DISCONNECTED" or code == "ROOM_FULL" or code == "SEAT_GONE":
 		status_label.text = "Disconnected"
+	elif code == "GAME_OVER":
+		status_label.text = "Game over"
 	## Server rejections (INVALID_TARGET etc.) surface here too — the dumb
 	## client's only feedback channel for refused intents is the error modal.
 	_show_error(code, message)
