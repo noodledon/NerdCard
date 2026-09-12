@@ -44,9 +44,11 @@ func connect_to(url: String) -> int:
 
 func _process(_delta: float) -> void:
 	var state := peer.get_ready_state()
-	# poll() must be called during STATE_CONNECTING too — without it the
-	# WebSocket handshake never completes and the peer stalls forever.
-	if state == WebSocketPeer.STATE_CONNECTING or state == WebSocketPeer.STATE_OPEN:
+	# poll() must be called during STATE_CONNECTING and STATE_CLOSING too —
+	# without it neither the open handshake nor the close handshake completes
+	# and the peer stalls forever (a stuck CLOSING peer never reaches CLOSED,
+	# so 'disconnected' never fires and the reconnect path never arms).
+	if state == WebSocketPeer.STATE_CONNECTING or state == WebSocketPeer.STATE_OPEN or state == WebSocketPeer.STATE_CLOSING:
 		peer.poll()
 	if state == WebSocketPeer.STATE_OPEN:
 		if not _connected:
