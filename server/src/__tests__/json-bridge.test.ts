@@ -1,8 +1,12 @@
-import { afterEach, beforeEach, describe, expect, it } from 'vitest';
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import http from 'http';
 import { WebSocket } from 'ws';
 import { JsonBridgeServer } from '../json-bridge.js';
 import { ErrorCode } from '../shared/ErrorCode.js';
+import { mathEngine } from '../math/index.js';
+import type { EngineResult } from '../math/index.js';
+import type { NerdiClashGame } from '../rooms/NerdiClashGame.js';
+import { CardSchema, addToHand } from '../state/schema.js';
 
 /**
  * In-repo smoke coverage for the JSON bridge — the only transport the Godot
@@ -209,7 +213,7 @@ async function joinRoomWithRetry(
 }
 
 async function joinTwoPlayers(): Promise<{
-  c1: BridgeClient; c2: BridgeClient; sid1: string; sid2: string;
+  c1: BridgeClient; c2: BridgeClient; sid1: string; sid2: string; tok1: string; tok2: string;
 }> {
   const c1 = await connect();
   const j1 = await joinRoom(c1);
@@ -217,16 +221,22 @@ async function joinTwoPlayers(): Promise<{
   const c2 = await connect();
   const j2 = await joinRoom(c2);
   expect(j2.type).toBe('joined');
-  return { c1, c2, sid1: String(j1.sessionId), sid2: String(j2.sessionId) };
+  return {
+    c1, c2,
+    sid1: String(j1.sessionId), sid2: String(j2.sessionId),
+    tok1: String(j1.reconnectToken), tok2: String(j2.reconnectToken),
+  };
 }
 
 describe('JsonBridgeServer', () => {
-  it('answers join_room with joined {sessionId, role}', async () => {
+  it('answers join_room with joined {sessionId, role, reconnectToken}', async () => {
     const client = await connect();
     const joined = await joinRoom(client);
     expect(joined.type).toBe('joined');
     expect(typeof joined.sessionId).toBe('string');
     expect(joined.role).toBe('p1');
+    expect(typeof joined.reconnectToken).toBe('string');
+    expect(String(joined.reconnectToken).length).toBeGreaterThan(0);
   });
 
   it('assigns p2 to the second join and broadcasts the construction snapshot', async () => {
@@ -298,13 +308,13 @@ describe('JsonBridgeServer', () => {
     expect(Array.isArray(players2[sid2]?.hand)).toBe(true);
   });
 
-  it('restores the seat when a disconnected client rejoins with its sessionId', async () => {
-    const { c1, sid1, sid2 } = await joinTwoPlayers();
+  it('restores the seat when a disconnected client rejoins with sessionId + reconnectToken', async () => {
+    const { c1, sid1, sid2, tok1 } = await joinTwoPlayers();
     await c1.waitFor(snapshotPhase('construction'), 3000, 'construction snapshot');
 
     await c1.close();
 
-    const { client: rejoined, msg } = await joinRoomWithRetry({ sessionId: sid1, displayName: 'tester' });
+    const { client: rejoined, msg } = await joinRoomWithRetry({ sessionId: sid1, reconnectToken: tok1, displayName: 'tester' });
     expect(msg.type).toBe('joined');
     expect(msg.sessionId).toBe(sid1);
     expect(msg.role).toBe('p1');
@@ -313,6 +323,79 @@ describe('JsonBridgeServer', () => {
     const players = snapshotState(snap).players ?? {};
     expect(Object.keys(players)).toEqual([sid1, sid2]);
     expect(players[sid1]?.isConnected).toBe(true);
+  });
+
+  it('rejects a seat reclaim that omits the reconnectToken — and keeps the seat reserved', async () => {
+    const { c1, sid1, tok1 } = await joinTwoPlayers();
+    await c1.waitFor(snapshotPhase('construction'), 3000, 'construction snapshot');
+    await c1.close();
+
+    // A bare sessionId is guessable (json-N) — it must NOT reclaim the seat.
+    // The rejection surfaces as ROOM_FULL, identical to any other fresh join
+    // against a full room, so a probe learns nothing about the seat's state.
+    const attacker = await connect();
+    const resp = await joinRoom(attacker, { sessionId: sid1 });
+    expect(resp.type).toBe('error');
+    expect(resp.code).toBe(ErrorCode.ROOM_FULL);
+
+    const { msg } = await joinRoomWithRetry({ sessionId: sid1, reconnectToken: tok1 });
+    expect(msg.type).toBe('joined');
+    expect(msg.sessionId).toBe(sid1);
+  });
+
+  it('rejects a seat reclaim with a wrong reconnectToken', async () => {
+    const { c1, sid1, tok1 } = await joinTwoPlayers();
+    await c1.waitFor(snapshotPhase('construction'), 3000, 'construction snapshot');
+    await c1.close();
+
+    const attacker = await connect();
+    const resp = await joinRoom(attacker, { sessionId: sid1, reconnectToken: 'forged-token' });
+    expect(resp.type).toBe('error');
+    expect(resp.code).toBe(ErrorCode.ROOM_FULL);
+
+    const { msg } = await joinRoomWithRetry({ sessionId: sid1, reconnectToken: tok1 });
+    expect(msg.type).toBe('joined');
+    expect(msg.sessionId).toBe(sid1);
+  });
+
+  it('keeps live sockets and terminates dead ones in the heartbeat sweep', async () => {
+    const { c1, c2, sid1, tok1 } = await joinTwoPlayers();
+    await c1.waitFor(snapshotPhase('construction'), 3000, 'construction snapshot');
+
+    const internals = bridge as unknown as {
+      clients: Map<string, { ws: WebSocket }>;
+      socketLiveness: WeakMap<WebSocket, boolean>;
+      runHeartbeat(): void;
+    };
+    const ws1 = internals.clients.get(sid1)?.ws;
+    expect(ws1).toBeDefined();
+
+    // A responsive client pongs automatically between sweeps and survives.
+    // Each sweep marks every socket false and pings; the sleep lets the
+    // auto-pongs flip them back to true before the next sweep checks.
+    internals.runHeartbeat();
+    await sleep(50);
+    internals.runHeartbeat();
+    expect(ws1?.readyState).toBe(WebSocket.OPEN);
+    await sleep(50);
+
+    // Simulate a half-open peer: the last interval's pong never arrived, so
+    // the next sweep terminates the socket and frees the seat. The flag set
+    // and the sweep are synchronous — no in-flight pong can interleave.
+    internals.socketLiveness.set(ws1 as WebSocket, false);
+    internals.runHeartbeat();
+    await c1.close();
+
+    const gone = await c2.waitForNext(
+      (msg) => isSnapshot(msg) && snapshotState(msg).players?.[sid1]?.isConnected === false,
+      3000,
+      'disconnect snapshot',
+    );
+    expect(gone.type).toBe('state_snapshot');
+
+    const { msg } = await joinRoomWithRetry({ sessionId: sid1, reconnectToken: tok1 });
+    expect(msg.type).toBe('joined');
+    expect(msg.sessionId).toBe(sid1);
   });
 
   it('tears the game down once every client disconnects', async () => {
@@ -366,5 +449,79 @@ describe('JsonBridgeServer', () => {
     const resp = await offClient.waitFor(isResponse, 3000, 'play_card response');
     expect(resp.type).toBe('error');
     expect(resp.code).toBe(ErrorCode.NOT_YOUR_TURN);
+  });
+
+  /**
+   * Wave-10 T4: intents and ticks share one FIFO lane. With the math engine
+   * stalled mid-`play_card`, neither a following `end_turn` nor an expired
+   * play deadline (which the 250ms interval tick would otherwise consume)
+   * may mutate state until the in-flight intent resolves.
+   */
+  it('serializes intents and ticks — a slow engine cannot interleave', async () => {
+    const { c1, c2, sid1, sid2 } = await joinTwoPlayers();
+
+    const conSnap = await c1.waitFor(snapshotPhase('construction'), 3000, 'construction snapshot');
+    const players = snapshotState(conSnap).players ?? {};
+    const board1 = players[sid1]?.boards?.[0]?.boardId;
+    const board2 = players[sid2]?.boards?.[0]?.boardId;
+
+    c1.send({ type: 'build_function', boardId: board1, expression: 'x' });
+    c2.send({ type: 'build_function', boardId: board2, expression: 'x' });
+    await c1.waitFor(isResponse, 3000, 'build_function response');
+    await c2.waitFor(isResponse, 3000, 'build_function response');
+
+    const drawSnap = await c1.waitFor(snapshotPhase('draw'), 3000, 'draw snapshot');
+    const turnId = String(snapshotState(drawSnap).currentTurnPlayerId);
+    const turnClient = turnId === sid1 ? c1 : c2;
+
+    turnClient.send({ type: 'draw_cards', deckChoices: [{ deck: 'action', count: 2 }] });
+    const draw = await turnClient.waitFor(isResponse, 3000, 'draw_cards response');
+    expect(draw).toMatchObject({ type: 'ack', intent: 'draw_cards' });
+    await turnClient.waitFor(snapshotPhase('play'), 3000, 'play snapshot');
+
+    // Hand the turn player an Integral card straight into state — the FCC
+    // draw is shuffled, so seeding beats drawing and praying.
+    const game = (bridge as unknown as { game?: NerdiClashGame }).game;
+    expect(game).toBeDefined();
+    const player = game?.state.players.get(turnId);
+    expect(player).toBeDefined();
+    const integral = new CardSchema();
+    integral.id = 'fcc-calc-integral-001';
+    integral.cardType = 'integral';
+    integral.subtype = 'Integral';
+    integral.deckType = 'fcc';
+    addToHand(player as NonNullable<typeof player>, integral);
+
+    let release!: (result: EngineResult) => void;
+    const gate = new Promise<EngineResult>((resolve) => { release = resolve; });
+    const spy = vi.spyOn(mathEngine, 'integrate').mockImplementation(() => gate);
+
+    try {
+      turnClient.send({ type: 'play_card', cardId: integral.id, target: { kind: 'none' } });
+      turnClient.send({ type: 'end_turn' });
+
+      // Wait long enough for the intent to be in-flight, then let the play
+      // deadline lapse and outlast several tick intervals — an unqueued tick
+      // would auto-pass play→resolution→draw and rotate the turn owner.
+      await sleep(50);
+      if (game) game.state.turnDeadline = Date.now() - 1;
+      await sleep(600);
+
+      expect(game?.state.phase).toBe('play');
+      expect(game?.state.currentTurnPlayerId).toBe(turnId);
+
+      release({ ok: true, supported: true, value: 'x^2/2' });
+
+      const playResp = await turnClient.waitFor(isResponse, 3000, 'play_card response');
+      expect(playResp).toMatchObject({ type: 'ack', intent: 'play_card' });
+      const endResp = await turnClient.waitFor(isResponse, 3000, 'end_turn response');
+      expect(endResp).toMatchObject({ type: 'ack', intent: 'end_turn' });
+
+      const next = await turnClient.waitFor(snapshotPhase('draw'), 3000, 'post-resolve draw');
+      expect(snapshotState(next).currentTurnPlayerId).not.toBe(turnId);
+      expect(spy).toHaveBeenCalledTimes(1);
+    } finally {
+      spy.mockRestore();
+    }
   });
 });

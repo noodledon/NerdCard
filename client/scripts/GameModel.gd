@@ -32,6 +32,12 @@ var state: Dictionary = {}
 ## or when a reclaim is rejected with ROOM_FULL.
 var local_session_id: String = ""
 
+## Seat-ownership proof issued inside "joined" (wave-10 T3). The bridge
+## requires sessionId + reconnectToken together to reclaim a disconnected
+## seat — sessionIds alone are sequential and guessable. Same lifecycle as
+## local_session_id.
+var local_reconnect_token: String = ""
+
 ## Selected variable-value card id (chosen in hand before an eval_function
 ## or force_eval intent is sent). Cleared after an intent is sent or the
 ## selection is toggled off. Owned/mutated only by MainGame/CardButton flow,
@@ -47,6 +53,7 @@ var selected_factor_card_id: String = ""
 func reset() -> void:
 	state = {}
 	local_session_id = ""
+	local_reconnect_token = ""
 	selected_variable_value_card_id = ""
 	selected_factor_card_id = ""
 

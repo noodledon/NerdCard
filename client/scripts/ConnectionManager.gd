@@ -15,10 +15,13 @@
 ##     mirrors ServerMessage's StateSnapshotSchema; `{"type": "error", "code",
 ##     "message", "retryable"}` mirrors ServerErrorSchema.
 ##   Join handshake: `{"type": "join_room", "room": "nerdiclash",
-##     "displayName": <optional>, "sessionId": <optional>}` outbound,
-##     `{"type": "joined", "sessionId": "...", "role": "p1"|"p2"}` inbound.
-##     Sending the prior sessionId reclaims a disconnected seat
-##     (json-bridge.ts handleJoin reconnection branch).
+##     "displayName": <optional>, "sessionId": <optional>,
+##     "reconnectToken": <optional>}` outbound,
+##     `{"type": "joined", "sessionId": "...", "role": "p1"|"p2",
+##     "reconnectToken": "..."}` inbound.
+##     Sending the prior sessionId + reconnectToken pair reclaims a
+##     disconnected seat (json-bridge.ts handleJoin reconnection branch);
+##     the token proves seat ownership — sessionIds are guessable.
 ##
 ## Transport reality: the JSON bridge (server/src/json-bridge.ts) is live at
 ## ws://localhost:2568 — outside the Zod ClientMessage union by design. It
@@ -79,12 +82,14 @@ func _on_ws_connected() -> void:
 	var join_msg: Dictionary = {"type": "join_room", "room": room_name}
 	if display_name != "":
 		join_msg["displayName"] = display_name
-	## Seat reclaim (T5): a held sessionId always rides along on join_room,
-	## so both the auto-retry and a manual Connect act as "Reconnect". The
-	## bridge falls through to a fresh join when the seat is gone.
+	## Seat reclaim (T5 + wave-10 T3): a held sessionId + reconnectToken
+	## always ride along on join_room, so both the auto-retry and a manual
+	## Connect act as "Reconnect". The bridge falls through to a fresh join
+	## when the seat is gone.
 	_rejoin_attempted = GameModel.local_session_id != ""
 	if _rejoin_attempted:
 		join_msg["sessionId"] = GameModel.local_session_id
+		join_msg["reconnectToken"] = GameModel.local_reconnect_token
 	ws.send_json(join_msg)
 
 
@@ -139,6 +144,7 @@ func _on_ws_message(data: Dictionary) -> void:
 			_auto_retried = false
 			_joined = true
 			GameModel.local_session_id = new_session_id
+			GameModel.local_reconnect_token = String(data.get("reconnectToken", ""))
 			emit_signal("connected", String(data.get("role", "")))
 		"state_snapshot":
 			GameModel.state = data.get("state", {})
@@ -159,10 +165,11 @@ func _on_ws_message(data: Dictionary) -> void:
 			var message: String = String(data.get("message", ""))
 			if code == "ROOM_FULL":
 				## A reclaim join that still gets ROOM_FULL means the seat
-				## is truly gone (or never ours). Drop the held id so the
-				## next Connect is a clean fresh join, and say so plainly
-				## instead of surfacing a generic connect error.
+				## is truly gone (or never ours). Drop the held id + token
+				## so the next Connect is a clean fresh join, and say so
+				## plainly instead of surfacing a generic connect error.
 				GameModel.local_session_id = ""
+				GameModel.local_reconnect_token = ""
 				_room_full_notified = true
 				message = "Room full / seat gone — try again once a seat frees up"
 			emit_signal("error", code, message)
