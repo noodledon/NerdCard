@@ -434,6 +434,7 @@ export class NerdiClashGame {
             boundFactorSpellId: player.boundFactorSpellId,
             evaluatedThisTurn: player.evaluatedThisTurn,
             actionsUsedThisTurn: player.actionsUsedThisTurn,
+            artifactTheoremActive: player.artifactTheoremActive,
             deckCounts: {
               fcc: player.deckFCC.length,
               number: player.deckNumber.length,
@@ -543,12 +544,21 @@ export class NerdiClashGame {
   private applyPendingAttack(): void {
     if (this.state.pendingAttackDamage10 <= 0 && !this.state.pendingAttackTargetId) return;
     const target = this.state.players.get(this.state.pendingAttackTargetId);
+    let damage10 = this.state.pendingAttackDamage10;
+    // Euler's Ward (act-artifact-theorem-001, {persistent:true}): halves every
+    // incoming attack while active — pinned as a persistent passive, not a
+    // consume-on-hit negate. Ordering pin: shield absorb already reduced the
+    // pending amount upstream in PlayDefenseCommand, so the ward halves the
+    // residual.
+    const artifactHalved = damage10 > 0 && target?.artifactTheoremActive === true;
+    if (artifactHalved) damage10 = Math.floor(damage10 / 2);
     if (target) {
-      target.hp10 = Math.max(0, target.hp10 - this.state.pendingAttackDamage10);
+      target.hp10 = Math.max(0, target.hp10 - damage10);
     }
     this.emitGameEvent('attack_resolved', this.state.pendingAttackSourceId, {
-      damage10: this.state.pendingAttackDamage10,
+      damage10,
       targetId: this.state.pendingAttackTargetId,
+      ...(artifactHalved ? { artifactHalved: true } : {}),
     });
     this.state.pendingAttackDamage10 = 0;
     this.state.pendingAttackSourceId = '';

@@ -257,6 +257,14 @@ export class PlayerSchema extends Schema {
 
   @type('number')
   actionsUsedThisTurn: number = 0;
+
+  /**
+   * Euler's Ward (act-artifact-theorem-001): persistent passive. While set,
+   * incoming attack damage is halved (floor) at applyPendingAttack — after
+   * any shield absorb. Was an untracked ad-hoc property before wave-9 T4.
+   */
+  @type('boolean')
+  artifactTheoremActive: boolean = false;
 }
 
 // ─── RoomConfigSchema ──────────────────────────────────────────────────────────

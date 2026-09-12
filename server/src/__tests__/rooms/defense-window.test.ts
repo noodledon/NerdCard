@@ -259,6 +259,100 @@ describe('hp_zero win', () => {
   });
 });
 
+describe("Euler's Ward (artifact theorem)", () => {
+  it('sets artifactTheoremActive via play_card and exposes it in snapshots', async () => {
+    const game = await gameInPlay();
+    giveCard(game, 'p1', 'act-artifact-theorem-001');
+
+    const result = await dispatch(game, 'p1', 'play_card', {
+      cardId: 'act-artifact-theorem-001',
+      target: { kind: 'self' },
+    });
+
+    expect(result.ok).toBe(true);
+    expect(requirePlayer(game, 'p1').artifactTheoremActive).toBe(true);
+    const players = game.getStateSnapshot().players as Record<string, { artifactTheoremActive: boolean }>;
+    expect(players.p1?.artifactTheoremActive).toBe(true);
+    expect(players.p2?.artifactTheoremActive).toBe(false);
+  });
+
+  it('halves two consecutive attacks and persists across turns', async () => {
+    const game = await gameInPlay();
+    const p1 = requirePlayer(game, 'p1');
+    p1.hp10 = 100;
+    giveCard(game, 'p1', 'act-artifact-theorem-001');
+    giveCard(game, 'p2', 'act-offensive-001');
+    giveCard(game, 'p2', 'act-martial-theorem-001');
+    const events: Array<{ event: string; details: Record<string, unknown> }> = [];
+    game.setEventListener((event) => events.push({ event: event.event, details: event.details }));
+
+    // p1 wards itself, then ends the turn quietly.
+    await dispatch(game, 'p1', 'play_card', {
+      cardId: 'act-artifact-theorem-001',
+      target: { kind: 'self' },
+    });
+    expect(game.requestEndTurn('p1').ok).toBe(true);
+
+    // p2's turn: Power Spike (catalog 50) → warded p1 takes floor(50/2) = 25.
+    await dispatch(game, 'p2', 'draw_cards', { deckChoices: [{ deck: 'action', count: 2 }] });
+    const attack1 = await dispatch(game, 'p2', 'play_card', {
+      cardId: 'act-offensive-001', target: { kind: 'opp', id: 'p1' },
+    });
+    expect(attack1.ok).toBe(true);
+    game.requestEndTurn('p2');
+    expect(game.state.phase).toBe(Phase.defense);
+    expect(game.requestEndTurn('p1').ok).toBe(true); // p1 passes
+    expect(p1.hp10).toBe(75);
+
+    // Next p2 turn: Pythagoras Strike (catalog 80) → ward still active, 40 lands.
+    await dispatch(game, 'p1', 'draw_cards', { deckChoices: [{ deck: 'fcc', count: 2 }] });
+    expect(game.requestEndTurn('p1').ok).toBe(true);
+    await dispatch(game, 'p2', 'draw_cards', { deckChoices: [{ deck: 'action', count: 2 }] });
+    const attack2 = await dispatch(game, 'p2', 'play_card', {
+      cardId: 'act-martial-theorem-001', target: { kind: 'opp', id: 'p1' },
+    });
+    expect(attack2.ok).toBe(true);
+    game.requestEndTurn('p2');
+    expect(game.requestEndTurn('p1').ok).toBe(true);
+    expect(p1.hp10).toBe(35);
+    expect(requirePlayer(game, 'p1').artifactTheoremActive).toBe(true);
+
+    const resolved = events.filter((entry) => entry.event === 'attack_resolved');
+    expect(resolved.map((entry) => entry.details)).toEqual([
+      { damage10: 25, targetId: 'p1', artifactHalved: true },
+      { damage10: 40, targetId: 'p1', artifactHalved: true },
+    ]);
+  });
+
+  it('applies shield absorb first, then halves the residual', async () => {
+    const game = await gameInPlay();
+    const p2 = requirePlayer(game, 'p2');
+    p2.hp10 = 100;
+    p2.artifactTheoremActive = true;
+    giveCard(game, 'p2', 'act-shield-001');
+    // An oversized pending hit: absorb 100 leaves 50, the ward halves to 25.
+    game.state.phase = Phase.defense;
+    game.state.pendingAttackDamage10 = 150;
+    game.state.pendingAttackSourceId = 'p1';
+    game.state.pendingAttackTargetId = 'p2';
+    game.state.pendingTriggerId = 'trigger-ward-order';
+    const events: Array<{ event: string; details: Record<string, unknown> }> = [];
+    game.setEventListener((event) => events.push({ event: event.event, details: event.details }));
+
+    const result = await dispatch(game, 'p2', 'play_defense', {
+      cardId: 'act-shield-001',
+      targetTriggerId: 'trigger-ward-order',
+    });
+
+    expect(result.ok).toBe(true);
+    expect(p2.hp10).toBe(75);
+    expect(events).toContainEqual({
+      event: 'attack_resolved',
+      details: { damage10: 25, targetId: 'p2', artifactHalved: true },
+    });
+  });
+});
+
 describe('force_eval orchestration', () => {
   it('declares domination win through dispatchIntent', async () => {
     const game = await gameInPlay('x^3', 'x');
