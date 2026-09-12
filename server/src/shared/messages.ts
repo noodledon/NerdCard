@@ -165,6 +165,13 @@ export const RoomListSchema = z.object({
   rooms: z.array(RoomInfoSchema),
 });
 
+// Bridge answer to leave_room — the seat is unseated (isConnected=false,
+// still reclaimable via its token while the room lives) but the socket
+// stays open for lobby-level browsing or a fresh join.
+export const LeftRoomSchema = z.object({
+  type: z.literal('left_room'),
+});
+
 export const ServerMessage = z.discriminatedUnion('type', [
   StateSnapshotSchema,
   PhaseChangeSchema,
@@ -175,6 +182,7 @@ export const ServerMessage = z.discriminatedUnion('type', [
   GameOverSchema,
   ServerErrorSchema,
   RoomListSchema,
+  LeftRoomSchema,
 ]);
 
 export type ServerMessage = z.infer<typeof ServerMessage>;

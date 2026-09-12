@@ -27,8 +27,9 @@ var state: Dictionary = {}
 
 ## This client's own session id, set by ConnectionManager on "joined".
 ## Survives a transient disconnect so a rejoin can reclaim the seat
-## (wave-7 T5); cleared only here in reset() — called on a fresh seat —
-## or when a reclaim is rejected with ROOM_FULL.
+## (wave-7 T5); cleared only here in reset() — called on a fresh seat,
+## on a voluntary leave_room ("left_room"), or when a reclaim is
+## rejected with ROOM_FULL.
 var local_session_id: String = ""
 
 ## Seat-ownership proof issued inside "joined" (wave-10 T3). The bridge

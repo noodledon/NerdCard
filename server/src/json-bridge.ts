@@ -217,10 +217,16 @@ export class JsonBridgeServer {
         }
         break;
       }
-      case 'leave_room':
-        // handleDisconnect performs the seat teardown on the close event.
-        ws.close();
+      case 'leave_room': {
+        // Leave-to-lobby: unseat exactly like a drop — the seat stays
+        // reclaimable via sessionId + reconnectToken while the room lives —
+        // but the socket stays open for lobby browsing or a fresh join.
+        // A last-leaver still kills the room: an unseated socket is not a
+        // client of the slot, so the clients.size === 0 teardown fires.
+        this.unseat(client);
+        this.send(ws, { type: 'left_room' });
         break;
+      }
       case 'rematch': {
         // Runs on the room's lane so the game swap can't interleave with an
         // in-flight intent on the old game (those self-reject via the
@@ -389,16 +395,27 @@ export class JsonBridgeServer {
   private handleDisconnect(ws: WebSocket): void {
     const client = this.findClientByWs(ws);
     if (!client) return;
+    this.unseat(client);
+  }
+
+  /**
+   * Free a socket's seat: the player flips to isConnected=false (the seat
+   * itself lingers, reclaimable via its reconnect token) and the socket
+   * leaves the slot. Shared by socket close and leave_room — a voluntary
+   * leave is exactly a drop with the socket kept open.
+   *
+   * Retire the room only once every live client is gone. Tearing it down
+   * while a player is still connected would strand them, and keying off
+   * the connected-client count (not playerCount, which lingers as
+   * disconnected player state) lets a fresh room start cleanly on the
+   * next join. Deleting the slot frees the whole game + queue + tokens.
+   */
+  private unseat(client: JsonClient): void {
     const slot = client.slot;
 
     slot.game?.removePlayer(client.sessionId);
     slot.clients.delete(client.sessionId);
 
-    // Retire the room only once every live connection is gone. Tearing it
-    // down while a player is still connected would strand them, and keying
-    // off the connected-client count (not playerCount, which lingers as
-    // disconnected player state) lets a fresh room start cleanly on the
-    // next join. Deleting the slot frees the whole game + queue + tokens.
     if (slot.clients.size === 0) {
       slot.game = undefined;
       slot.reconnectTokens.clear();

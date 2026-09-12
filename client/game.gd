@@ -141,6 +141,11 @@ var _room_line_edit: LineEdit
 var _refresh_rooms_button: Button
 var _rooms_vbox: VBoxContainer
 
+## Leave button on the connect row, code-built like the room browser.
+## Visible only while seated — leave_room unseats us but keeps the socket,
+## so leaving returns to this lobby row without a reconnect (wave-12 T2).
+var _leave_button: Button
+
 ## Rematch button, code-built into the scene's GameOverVBox in _ready (same
 ## convention as the defense banner — game.tscn untouched). Rematch votes
 ## ride the game_event stream, not snapshots, so the opponent's vote is
@@ -163,9 +168,11 @@ func _ready() -> void:
 	ConnectionManager.connect("error", Callable(self, "_on_connection_error"))
 	ConnectionManager.connect("rematch_offered", Callable(self, "_on_rematch_offered"))
 	ConnectionManager.connect("room_listed", Callable(self, "_on_room_listed"))
+	ConnectionManager.connect("room_left", Callable(self, "_on_room_left"))
 	_build_defense_banner()
 	_build_room_field()
 	_build_room_browser()
+	_build_leave_button()
 	_build_rematch_button()
 	_render_from_model()
 
@@ -194,6 +201,18 @@ func _build_room_browser() -> void:
 	_rooms_vbox = VBoxContainer.new()
 	main_vbox.add_child(_rooms_vbox)
 	main_vbox.move_child(_rooms_vbox, connect_row.get_index() + 1)
+
+
+## Leave sits between Refresh and StatusLabel — hidden until a seat exists
+## (see _on_connected/_on_room_left/_on_connection_error).
+func _build_leave_button() -> void:
+	_leave_button = Button.new()
+	_leave_button.text = "Leave"
+	_leave_button.tooltip_text = "Leave the room — the connection stays open"
+	_leave_button.visible = false
+	_leave_button.pressed.connect(_on_leave_pressed)
+	connect_row.add_child(_leave_button)
+	connect_row.move_child(_leave_button, 4)
 
 
 ## Refresh doubles as the lobby dial: a cold socket browses without taking
@@ -230,8 +249,30 @@ func _on_connect_button_pressed() -> void:
 	ConnectionManager.connect_to_server(ip_line_edit.text, "", _room_line_edit.text)
 
 
+## leave_room needs a seat, so send_intent's _joined gate is the right
+## path — the button is only visible while seated anyway. The bridge's
+## left_room reply (room_left) drives the UI back to the lobby.
+func _on_leave_pressed() -> void:
+	ConnectionManager.send_intent("leave_room")
+
+
+## The bridge confirmed our leave_room — the seat shows isConnected=false
+## to the room but stays reclaimable server-side while it lives. We
+## dropped our sessionId/token inside GameModel.reset() (done by
+## ConnectionManager on left_room): a later Connect is a fresh seat by
+## choice, not a silent reclaim.
+func _on_room_left() -> void:
+	_local_role = ""
+	_leave_button.visible = false
+	status_label.text = "Left room — still connected"
+	_render_from_model()
+	## Still on the same socket — refresh the lobby directory in place.
+	ConnectionManager.send_list_rooms()
+
+
 func _on_connected(role: String) -> void:
 	_local_role = role
+	_leave_button.visible = true
 	status_label.text = "Connected as %s" % role
 
 
@@ -254,6 +295,9 @@ func _on_connection_error(code: String, message: String) -> void:
 		status_label.text = "Disconnected"
 	elif code == "GAME_OVER":
 		status_label.text = "Game over"
+	## A drop/ROOM_FULL leaves us unseated — Leave only exists while the
+	## bridge still holds a seat for this socket.
+	_leave_button.visible = ConnectionManager.is_connected_to_room()
 	## Server rejections (INVALID_TARGET etc.) surface here too — the dumb
 	## client's only feedback channel for refused intents is the error modal.
 	_show_error(code, message)

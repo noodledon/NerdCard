@@ -27,6 +27,10 @@
 ##     bridge answers ANY connected socket, seated or not, with
 ##     `{"type": "room_list", "rooms": [{"name", "playerCount", "connected",
 ##     "phase"}]}`. Pull-only: nothing streams the list, clients re-ask.
+##   Leave-to-lobby: `{"type": "leave_room"}` outbound unseats this client
+##     exactly like a drop (isConnected=false, seat stays reclaimable via
+##     its token while the room lives) but keeps the socket open — the
+##     bridge replies `{"type": "left_room"}` instead of closing.
 ##
 ## Transport reality: the JSON bridge (server/src/json-bridge.ts) is live at
 ## ws://localhost:2568 — outside the Zod ClientMessage union by design. It
@@ -44,6 +48,11 @@ signal error(code: String, message: String)
 signal rematch_offered(actor_id: String)
 ## Carries the rooms array of a room_list reply (see send_list_rooms).
 signal room_listed(rooms: Array)
+## Emitted when the bridge answers our leave_room with left_room — the
+## socket stays open (lobby browsing still works), but the seat is gone
+## and GameModel was already reset: sessionId/token are cleared so the
+## next Connect is a deliberate fresh join, never a surprise reclaim.
+signal room_left()
 
 const RawWsClientScript = preload("res://scripts/raw-ws-client.gd")
 
@@ -221,6 +230,14 @@ func _on_ws_message(data: Dictionary) -> void:
 				emit_signal("rematch_offered", String(data.get("actorId", "")))
 		"room_list":
 			emit_signal("room_listed", data.get("rooms", []))
+		"left_room":
+			## Voluntary unseat (wave-12 T2): exactly a drop server-side,
+			## but the socket lives on for the lobby. Unlike a transient
+			## drop we DO clear seat credentials — the user chose to
+			## leave, so a later join must not silently reclaim.
+			_joined = false
+			GameModel.reset()
+			emit_signal("room_left")
 		"error":
 			var code: String = String(data.get("code", "UNKNOWN"))
 			var message: String = String(data.get("message", ""))

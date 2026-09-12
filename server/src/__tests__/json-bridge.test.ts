@@ -891,6 +891,135 @@ describe('JsonBridgeServer', () => {
   });
 
   /**
+   * Wave-12 T2: `leave_room` unseats the client exactly like a drop —
+   * isConnected=false, seat still reclaimable via its token — but keeps
+   * the socket open so the client can browse or join another room on it.
+   * Teardown still keys off slot.clients.size === 0, so a last-leaver
+   * kills the room even though their socket stays connected.
+   */
+  describe('leave-to-lobby', () => {
+    it('answers leave_room with left_room on a still-open socket and drops the seat like a disconnect', async () => {
+      const { c1, c2, sid1 } = await joinTwoPlayers();
+      await c1.waitFor(snapshotPhase('construction'), 3000, 'construction snapshot');
+
+      c1.send({ type: 'leave_room' });
+      const left = await c1.waitFor(ofType('left_room'), 3000, 'left_room');
+      expect(left.type).toBe('left_room');
+
+      // The socket stayed open: a lobby-level pull is still answered on it.
+      c1.send({ type: 'list_rooms' });
+      const list = await c1.waitFor(ofType('room_list'), 3000, 'room_list');
+      expect(list.type).toBe('room_list');
+
+      // Exactly a drop: the opponent's next snapshot marks the seat
+      // isConnected=false — held, not freed.
+      const gone = await c2.waitForNext(
+        (msg) => isSnapshot(msg) && snapshotState(msg).players?.[sid1]?.isConnected === false,
+        3000,
+        'seat-disconnected snapshot',
+      );
+      expect(gone.type).toBe('state_snapshot');
+
+      // Unseated means no seat: a second leave_room is a plain NOT_JOINED.
+      c1.send({ type: 'leave_room' });
+      const again = await c1.waitFor(ofType('error'), 3000, 'second leave_room');
+      expect(again.code).toBe('NOT_JOINED');
+    });
+
+    it('joins a different room on the same socket after leaving', async () => {
+      const { c1, sid1 } = await joinTwoPlayers();
+      await c1.waitFor(snapshotPhase('construction'), 3000, 'construction snapshot');
+
+      c1.send({ type: 'leave_room' });
+      await c1.waitFor(ofType('left_room'), 3000, 'left_room');
+
+      c1.send({ type: 'join_room', room: 'beta', displayName: 'tester' });
+      const j = await c1.waitFor(
+        (msg) => msg.type === 'joined' || msg.type === 'error',
+        3000,
+        'joined|error',
+      );
+      expect(j.type).toBe('joined');
+      expect(j.role).toBe('p1');
+      expect(j.sessionId).not.toBe(sid1);
+
+      // Beta is a fresh lone-seat game — only a beta snapshot can name
+      // the new sessionId, so this can't be fooled by a stale frame.
+      const snap = await c1.waitForNext(
+        (msg) => isSnapshot(msg) && snapshotState(msg).players?.[String(j.sessionId)] !== undefined,
+        3000,
+        'beta snapshot',
+      );
+      const state = snapshotState(snap);
+      expect(state.phase).toBe('waiting');
+      expect(Object.keys(state.players ?? {})).toEqual([String(j.sessionId)]);
+    });
+
+    it('tears the room down when the last seated client leaves — live sockets do not hold it', async () => {
+      const { c1, c2 } = await joinTwoPlayers();
+      await c1.waitFor(snapshotPhase('construction'), 3000, 'construction snapshot');
+
+      // left_room is sent after the unseat, so receiving it means the
+      // teardown already ran — no polling needed.
+      c1.send({ type: 'leave_room' });
+      await c1.waitFor(ofType('left_room'), 3000, 'left_room');
+      c2.send({ type: 'leave_room' });
+      await c2.waitFor(ofType('left_room'), 3000, 'left_room');
+
+      // Both sockets are still live and lobby-functional — and the room
+      // is already gone from the directory.
+      c1.send({ type: 'list_rooms' });
+      const list = await c1.waitFor(ofType('room_list'), 3000, 'room_list');
+      const names = ((list.rooms ?? []) as Array<{ name: string }>).map((r) => r.name);
+      expect(names).not.toContain('nerdiclash');
+
+      // A fresh join lands p1 alone in a brand-new game.
+      const fresh = await connect();
+      const j = await joinRoom(fresh);
+      expect(j.type).toBe('joined');
+      expect(j.role).toBe('p1');
+      const snap = await fresh.waitForNext(isSnapshot, 3000, 'fresh snapshot');
+      expect(Object.keys(snapshotState(snap).players ?? {})).toHaveLength(1);
+    });
+
+    it('keeps the vacated seat reclaimable by its token — and closed to strangers', async () => {
+      const { c1, sid1, tok1 } = await joinTwoPlayers();
+      await c1.waitFor(snapshotPhase('construction'), 3000, 'construction snapshot');
+
+      c1.send({ type: 'leave_room' });
+      await c1.waitFor(ofType('left_room'), 3000, 'left_room');
+
+      // A voluntary leave does not free the seat: a stranger presenting
+      // the guessable sessionId without the token still hits ROOM_FULL.
+      const stranger = await connect();
+      const resp = await joinRoom(stranger, { sessionId: sid1 });
+      expect(resp.type).toBe('error');
+      expect(resp.code).toBe(ErrorCode.ROOM_FULL);
+
+      // The leaver's own socket reclaims the seat — rejoining the same
+      // room is a normal reclaim.
+      c1.send({
+        type: 'join_room',
+        room: 'nerdiclash',
+        sessionId: sid1,
+        reconnectToken: tok1,
+        displayName: 'tester',
+      });
+      const j = await c1.waitFor(
+        (msg) => msg.type === 'joined' || msg.type === 'error',
+        3000,
+        'joined|error',
+      );
+      expect(j.type).toBe('joined');
+      expect(j.sessionId).toBe(sid1);
+      expect(j.role).toBe('p1');
+
+      const snap = await c1.waitForNext(isSnapshot, 3000, 'reclaimed snapshot');
+      expect(snapshotState(snap).players?.[sid1]?.isConnected).toBe(true);
+    });
+  });
+
+  /**
    * Wave-11 T2: `rematch` is a transport-level room intent — both seated
    * players must vote while the game is over; the second vote swaps a fresh
    * NerdiClashGame in with the same sessionIds/roles/tokens. Tests force
