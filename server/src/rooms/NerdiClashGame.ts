@@ -199,11 +199,37 @@ export class NerdiClashGame {
       return this.finalizeDraw(sessionId);
     }
 
-    const commandIntent = this.toCommandIntent(sessionId, intent, payload);
-    if (!commandIntent) {
+    // Authority backstop: the Colyseus handlers run these checks early
+    // (handlers.ts), but the JSON bridge calls dispatchIntent directly, so
+    // turn/defender ownership is enforced here where both transports share it.
+    if (
+      intent === 'play_card'
+      || intent === 'set_trap'
+      || intent === 'eval_function'
+      || intent === 'force_eval'
+    ) {
+      if (this.state.phase !== Phase.play || sessionId !== this.state.currentTurnPlayerId) {
+        return { ok: false, reason: 'not the active player' };
+      }
+    }
+    if (intent === 'play_defense') {
+      if (this.state.phase !== Phase.defense || sessionId !== this.state.pendingAttackTargetId) {
+        return { ok: false, reason: 'not the defending player' };
+      }
+      if (payload.targetTriggerId !== this.state.pendingTriggerId) {
+        return { ok: false, reason: 'unknown trigger' };
+      }
+    }
+
+    const routed = this.toCommandIntent(sessionId, intent, payload);
+    if (routed && 'ok' in routed) {
+      return routed;
+    }
+    if (!routed) {
       const unrouted = intent === 'play_card' ? this.unroutedPlayCardReason(sessionId, payload) : undefined;
       return { ok: false, reason: unrouted ?? `unsupported intent ${intent}` };
     }
+    const commandIntent = routed;
     const result = this.dispatchCommand(commandIntent);
     if (result instanceof Promise) {
       return result.then((resolved) => this.applyPostPlayProcessing(resolved, intent, payload, sessionId));
@@ -596,6 +622,14 @@ export class NerdiClashGame {
     return 'card effect not implemented in v1';
   }
 
+  /** Owner of a boardId across all players, or undefined when no board matches. */
+  private boardOwnerId(boardId: string): string | undefined {
+    for (const [id, candidate] of this.state.players.entries()) {
+      if ([...candidate.boards].some((board) => board?.boardId === boardId)) return id;
+    }
+    return undefined;
+  }
+
   private findBoardForPlayer(sessionId: string, boardId: string): FunctionBoardSchema | undefined {
     const player = this.state.players.get(sessionId);
     if (!player) return undefined;
@@ -610,7 +644,12 @@ export class NerdiClashGame {
     }, commandIntent);
   }
 
-  private toCommandIntent(playerId: string, intent: string, payload: Record<string, unknown>): CommandIntent | undefined {
+  /**
+   * Route a wire intent to a command. Returns a CommandResult instead of a
+   * CommandIntent when the route itself rejects (e.g. a self-targeting
+   * play_card); undefined means the intent has no route at all.
+   */
+  private toCommandIntent(playerId: string, intent: string, payload: Record<string, unknown>): CommandIntent | CommandResult | undefined {
     switch (intent) {
       case 'build_function':
         return { intent: 'build-function', payload: { playerId, boardId: String(payload.boardId), expression: String(payload.expression) } };
@@ -651,6 +690,14 @@ export class NerdiClashGame {
         if (!player || !card) return undefined;
 
         const targetId = typeof target.id === 'string' ? target.id : undefined;
+        // 'opp' must name an opponent and 'opp_board' a board an opponent owns —
+        // naming yourself or your own board is self-targeting spelled differently.
+        if (target.kind === 'opp' && targetId === playerId) {
+          return { ok: false, reason: 'cannot target self' };
+        }
+        if (target.kind === 'opp_board' && targetId && this.boardOwnerId(targetId) === playerId) {
+          return { ok: false, reason: 'cannot target self' };
+        }
         const rawNumberFactors = payload.numberFactorCardIds;
         const numberCardId = Array.isArray(rawNumberFactors) && typeof rawNumberFactors[0] === 'string'
           ? rawNumberFactors[0]

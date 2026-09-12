@@ -76,7 +76,7 @@ export class JsonBridgeServer {
       case 'end_turn': {
         const result = this.game.requestEndTurn(client.sessionId);
         if (!result.ok) {
-          this.send(ws, { type: 'error', code: 'INVALID_TARGET', message: result.reason ?? 'end turn failed' });
+          this.send(ws, { type: 'error', code: this.errorCodeFor(result.reason), message: result.reason ?? 'end turn failed' });
         } else {
           this.send(ws, { type: 'ack', intent: 'end_turn' });
         }
@@ -237,6 +237,8 @@ export class JsonBridgeServer {
   }
 
   private errorCodeFor(reason: string | undefined): string {
+    if (reason?.includes('active player') || reason?.includes('defending player')) return ErrorCode.NOT_YOUR_TURN;
+    if (reason?.includes('only in') || reason?.includes('phase')) return ErrorCode.NOT_PHASE_NOT_DRAW;
     if (reason?.includes('aggressive action')) return ErrorCode.OFFENSIVE_LIMIT_EXCEEDED;
     if (reason?.includes('not in player')) return ErrorCode.CARD_NOT_IN_HAND;
     if (reason?.includes('maximum') || reason?.includes('already used')) return ErrorCode.TOO_MANY_ACTIONS;
