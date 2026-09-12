@@ -18,6 +18,7 @@ extends Node2D
 @onready var connect_button: Button = $CanvasLayer/MarginContainer/ScrollContainer/VBoxContainer/ConnectRow/ConnectButton
 @onready var status_label: Label = $CanvasLayer/MarginContainer/ScrollContainer/VBoxContainer/ConnectRow/StatusLabel
 
+@onready var phase_turn_row: HBoxContainer = $CanvasLayer/MarginContainer/ScrollContainer/VBoxContainer/PhaseTurnRow
 @onready var turn_phase_label: Label = $CanvasLayer/MarginContainer/ScrollContainer/VBoxContainer/PhaseTurnRow/TurnPhaseLabel
 @onready var turn_owner_label: Label = $CanvasLayer/MarginContainer/ScrollContainer/VBoxContainer/PhaseTurnRow/TurnOwnerLabel
 
@@ -92,6 +93,22 @@ const WIN_REASON_LABELS: Dictionary = {
 	"abandoned": "Game abandoned",
 }
 
+## Mode picker entries in OptionButton order — display label ↔ wire
+## GameMode value (server/src/logic/modes.ts GAME_MODES). The wire value
+## rides as item metadata.
+const MODE_OPTIONS: Array = [
+	{"label": "NerdiClash", "value": "nerdiclash"},
+	{"label": "Variable Isolation", "value": "variable_isolation"},
+	{"label": "Classic Clash", "value": "classic_clash"},
+]
+
+## Wire GameMode → display label (HUD badge, status line, room rows).
+const MODE_LABELS: Dictionary = {
+	"nerdiclash": "NerdiClash",
+	"variable_isolation": "Variable Isolation",
+	"classic_clash": "Classic Clash",
+}
+
 ## Base captions for the three draw buttons — the armed deck gets a " ·1"
 ## suffix so a split-draw selection is visible before the second click.
 const DECK_BUTTON_BASE_TEXT: Dictionary = {
@@ -146,6 +163,13 @@ var _rooms_vbox: VBoxContainer
 ## so leaving returns to this lobby row without a reconnect (wave-12 T2).
 var _leave_button: Button
 
+## Mode picker on the connect row and the HUD mode badge on the phase row —
+## both code-built in _ready (same convention as the room field; wave-13
+## M3). The picker's choice rides join_room.mode; the badge reads the
+## snapshot's root `mode`, so it always shows the room's actual mode.
+var _mode_option_button: OptionButton
+var _mode_badge_label: Label
+
 ## Rematch button, code-built into the scene's GameOverVBox in _ready (same
 ## convention as the defense banner — game.tscn untouched). Rematch votes
 ## ride the game_event stream, not snapshots, so the opponent's vote is
@@ -173,6 +197,8 @@ func _ready() -> void:
 	_build_room_field()
 	_build_room_browser()
 	_build_leave_button()
+	_build_mode_picker()
+	_build_mode_badge()
 	_build_rematch_button()
 	_render_from_model()
 
@@ -215,6 +241,58 @@ func _build_leave_button() -> void:
 	connect_row.move_child(_leave_button, 4)
 
 
+## Mode OptionButton between the room field and ConnectButton (index 2).
+## Must run after _build_room_browser/_build_leave_button — those move to
+## fixed indices 3/4, which only land right while ConnectButton still
+## sits at index 2.
+func _build_mode_picker() -> void:
+	_mode_option_button = OptionButton.new()
+	for option in MODE_OPTIONS:
+		_mode_option_button.add_item(String(option["label"]))
+		_mode_option_button.set_item_metadata(_mode_option_button.item_count - 1, option["value"])
+	_mode_option_button.selected = 0
+	_mode_option_button.tooltip_text = "Game mode — fixed for the room once created"
+	connect_row.add_child(_mode_option_button)
+	connect_row.move_child(_mode_option_button, 2)
+
+
+## Small mode readout appended to the phase row (next to the turn labels).
+## Fed by the snapshot's root `mode` — getStateSnapshot surfaces
+## config.mode flat — so a rejoined room shows its own mode, not the
+## picker's request.
+func _build_mode_badge() -> void:
+	_mode_badge_label = Label.new()
+	_mode_badge_label.add_theme_color_override("font_color", TEXT_DIM)
+	_mode_badge_label.add_theme_font_size_override("font_size", 16)
+	_mode_badge_label.vertical_alignment = VERTICAL_ALIGNMENT_CENTER
+	_mode_badge_label.visible = false
+	phase_turn_row.add_child(_mode_badge_label)
+
+
+## Wire GameMode → display label; unknown values pass through verbatim.
+func _mode_label(mode: String) -> String:
+	return String(MODE_LABELS.get(mode, mode))
+
+
+## The picker's wire value — the selected item's metadata, defaulting to
+## the first entry (nerdiclash).
+func _selected_mode() -> String:
+	var idx: int = _mode_option_button.selected
+	if idx < 0:
+		idx = 0
+	var meta: Variant = _mode_option_button.get_item_metadata(idx)
+	return String(meta) if meta != null else "nerdiclash"
+
+
+## Move the picker to a wire mode value — room-browser rows preset it, so
+## Connect can't hit the live room's MODE_MISMATCH by accident.
+func _select_mode(mode: String) -> void:
+	for i in _mode_option_button.item_count:
+		if String(_mode_option_button.get_item_metadata(i)) == mode:
+			_mode_option_button.select(i)
+			return
+
+
 ## Refresh doubles as the lobby dial: a cold socket browses without taking
 ## a seat (browse_rooms), a live one just re-asks.
 func _on_refresh_rooms_pressed() -> void:
@@ -233,20 +311,27 @@ func _on_room_listed(rooms: Array) -> void:
 	for entry in rooms:
 		var info: Dictionary = entry
 		var listed_name: String = String(info.get("name", ""))
+		var listed_mode: String = String(info.get("mode", ""))
 		var row := Button.new()
 		row.alignment = HORIZONTAL_ALIGNMENT_LEFT
-		row.text = "%s — %d/2 — %s" % [
+		row.text = "%s — %d/2 — %s — %s" % [
 			listed_name,
 			int(info.get("playerCount", 0)),
 			String(info.get("phase", "waiting")),
+			_mode_label(listed_mode) if listed_mode != "" else "?",
 		]
-		row.pressed.connect(func() -> void: _room_line_edit.text = listed_name)
+		## A live room's mode is fixed — preset the picker to the row's mode
+		## so the following Connect agrees with it (MODE_MISMATCH otherwise).
+		row.pressed.connect(func() -> void:
+			_room_line_edit.text = listed_name
+			_select_mode(listed_mode)
+		)
 		_rooms_vbox.add_child(row)
 
 
 func _on_connect_button_pressed() -> void:
 	status_label.text = "Connecting..."
-	ConnectionManager.connect_to_server(ip_line_edit.text, "", _room_line_edit.text)
+	ConnectionManager.connect_to_server(ip_line_edit.text, "", _room_line_edit.text, _selected_mode())
 
 
 ## leave_room needs a seat, so send_intent's _joined gate is the right
@@ -273,7 +358,11 @@ func _on_room_left() -> void:
 func _on_connected(role: String) -> void:
 	_local_role = role
 	_leave_button.visible = true
-	status_label.text = "Connected as %s" % role
+	## confirmed_mode is the bridge's `joined.mode` echo — the room's
+	## authoritative mode, which may differ from the picker's request only
+	## on a seat reclaim.
+	var mode_text: String = _mode_label(ConnectionManager.confirmed_mode)
+	status_label.text = "Connected as %s" % role if mode_text == "" else "Connected as %s — %s" % [role, mode_text]
 
 
 func _on_state_changed(_snapshot: Dictionary) -> void:
@@ -336,6 +425,7 @@ func _render_from_model() -> void:
 	_render_construction_panel(phase, local_player)
 	_render_defense_banner(phase, state)
 	_render_game_over(phase, state)
+	_render_mode_badge(state)
 
 
 ## Drops selection ids whose card has left the hand (consumed by a
@@ -715,6 +805,15 @@ func _process(_delta: float) -> void:
 		construction_countdown.text = "%ds" % _deadline_seconds_left()
 	elif phase == "defense" and _defense_label != null:
 		_defense_label.text = _defense_banner_text()
+
+
+## Snapshot-root `mode` → "Mode: X" badge on the phase row; hidden before
+## the first snapshot (no mode known yet) and after a leave/reset.
+func _render_mode_badge(state: Dictionary) -> void:
+	var mode: String = String(state.get("mode", ""))
+	_mode_badge_label.visible = mode != ""
+	if mode != "":
+		_mode_badge_label.text = "Mode: %s" % _mode_label(mode)
 
 
 func _render_deck_counts(local_player: Dictionary) -> void:

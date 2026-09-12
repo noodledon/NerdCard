@@ -16,10 +16,12 @@
 ##     "message", "retryable"}` mirrors ServerErrorSchema.
 ##   Join handshake: `{"type": "join_room", "room": <room_name — each name
 ##     is an isolated 2P game; blank falls back to "nerdiclash">,
+##     "mode": <GameMode — blank falls back to "nerdiclash"; a live room
+##     that disagrees answers MODE_MISMATCH (wave-13 M1)>,
 ##     "displayName": <optional>, "sessionId": <optional>,
 ##     "reconnectToken": <optional>}` outbound,
 ##     `{"type": "joined", "sessionId": "...", "role": "p1"|"p2",
-##     "reconnectToken": "..."}` inbound.
+##     "reconnectToken": "...", "mode": <the room's GameMode>}` inbound.
 ##     Sending the prior sessionId + reconnectToken pair reclaims a
 ##     disconnected seat (json-bridge.ts handleJoin reconnection branch);
 ##     the token proves seat ownership — sessionIds are guessable.
@@ -64,6 +66,14 @@ const RETRY_DELAY_SEC: float = 1.0
 var ws: Node = null
 var endpoint: String = "ws://localhost:2568"
 var room_name: String = "nerdiclash"
+## GameMode picked on the connect row (server/src/logic/modes.ts
+## GAME_MODES) — sent on every join_room; a live room that disagrees
+## answers MODE_MISMATCH.
+var game_mode: String = "nerdiclash"
+## The mode echoed back in `joined` — the room's authoritative mode, which
+## on a seat reclaim is whatever the room was created with regardless of
+## the mode we sent (the bridge ignores mode on reclaim).
+var confirmed_mode: String = ""
 var display_name: String = ""
 var _joined: bool = false
 ## True while the in-flight join_room carried a stored sessionId — set in
@@ -90,12 +100,16 @@ func _ready() -> void:
 	ws.connect("connection_failed", Callable(self, "_on_ws_connection_failed"))
 
 
-func connect_to_server(url: String, name_hint: String = "", room_hint: String = "") -> void:
+func connect_to_server(url: String, name_hint: String = "", room_hint: String = "", mode_hint: String = "") -> void:
 	endpoint = url
 	display_name = name_hint
 	## Blank keeps the bridge default ("nerdiclash") — room names are
 	## [a-zA-Z0-9_-]{1,32} and each is an isolated 2P game (wave-11 T1).
 	room_name = room_hint if room_hint != "" else "nerdiclash"
+	## Same convention for the GameMode (wave-13 M1): missing/empty is the
+	## v1 default; invalid values are INVALID_PAYLOAD server-side.
+	game_mode = mode_hint if mode_hint != "" else "nerdiclash"
+	confirmed_mode = ""
 	_joined = false
 	_auto_retried = false
 	_room_full_notified = false
@@ -140,7 +154,7 @@ func _on_ws_connected() -> void:
 
 
 func _send_join() -> void:
-	var join_msg: Dictionary = {"type": "join_room", "room": room_name}
+	var join_msg: Dictionary = {"type": "join_room", "room": room_name, "mode": game_mode}
 	if display_name != "":
 		join_msg["displayName"] = display_name
 	## Seat reclaim (T5 + wave-10 T3): a held sessionId + reconnectToken
@@ -151,6 +165,8 @@ func _send_join() -> void:
 	if _rejoin_attempted:
 		join_msg["sessionId"] = GameModel.local_session_id
 		join_msg["reconnectToken"] = GameModel.local_reconnect_token
+	if OS.is_debug_build():
+		print("[ConnectionManager] join_room: ", join_msg)
 	ws.send_json(join_msg)
 
 
@@ -206,6 +222,9 @@ func _on_ws_message(data: Dictionary) -> void:
 			_joined = true
 			GameModel.local_session_id = new_session_id
 			GameModel.local_reconnect_token = String(data.get("reconnectToken", ""))
+			## `joined.mode` echo confirms the room's mode — on a reclaim
+			## this is the seat's mode, not necessarily what we asked for.
+			confirmed_mode = String(data.get("mode", game_mode))
 			emit_signal("connected", String(data.get("role", "")))
 		"state_snapshot":
 			GameModel.state = data.get("state", {})

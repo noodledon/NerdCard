@@ -20,7 +20,8 @@ extends Node
 ##   scenario    {steps}           sequential step list — the timing-safe way
 ##                                 to cross short windows (defense, trap)
 ##   ws_close {}                   close the game socket (reconnect test)
-##   connect_ws  {url}             ConnectionManager.connect_to_server
+##   connect_ws  {url,room,mode}   ConnectionManager.connect_to_server
+##                                 (room/mode optional — bridge defaults)
 ##   get_log {}                    drained ring buffer of WS msgs + signals
 ##   quit {}                       exit the client process
 ##
@@ -252,6 +253,7 @@ func _run_command(msg: Dictionary) -> Variant:
 				String(msg.get("url", "ws://localhost:2568")),
 				"",
 				String(msg.get("room", "")),
+				String(msg.get("mode", "")),
 			)
 			return {"connecting": true}
 		"get_log":
@@ -296,7 +298,12 @@ func _run_scenario(steps: Array) -> Dictionary:
 			"ws_close":
 				r = await _run_command({"cmd": "ws_close"})
 			"connect_ws":
-				r = await _run_command({"cmd": "connect_ws", "url": step.get("url", "ws://localhost:2568")})
+				r = await _run_command({
+					"cmd": "connect_ws",
+					"url": step.get("url", "ws://localhost:2568"),
+					"room": step.get("room", ""),
+					"mode": step.get("mode", ""),
+				})
 			"dump_log":
 				var p := String(step.get("path", "user://testkit_log.json"))
 				DirAccess.make_dir_recursive_absolute(p.get_base_dir())
