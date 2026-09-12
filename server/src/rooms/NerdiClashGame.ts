@@ -38,7 +38,7 @@ const CARD_EFFECT_PARAMS_BY_ID = new Map(loadCatalog().map((card) => [card.id, c
 const ROUTED_PLAY_CARD_TYPES = new Set([
   'addTerm', 'derivative', 'offensive', 'martialTheorem', 'trap',
   'artifactTheorem', 'forceEval', 'addBoard', 'composition', 'integral', 'limit',
-  'modular', 'ntTheorem',
+  'modular', 'ntTheorem', 'vector', 'matrix', 'transform', 'eigenvalue',
 ]);
 
 /**
@@ -802,6 +802,60 @@ export class NerdiClashGame {
               },
             };
           }
+          case 'vector': {
+            const params = CARD_EFFECT_PARAMS_BY_ID.get(cardId);
+            const values = params?.values;
+            const dim = params?.dim;
+            if (
+              !Array.isArray(values) || values.length === 0
+              || !values.every((value) => typeof value === 'number' && Number.isFinite(value))
+              || typeof dim !== 'number' || !Number.isInteger(dim) || dim <= 0
+            ) {
+              return { ok: false, reason: 'vector params unavailable' };
+            }
+            return {
+              intent: 'vector',
+              payload: {
+                playerId,
+                cardId,
+                boardId: `${playerId}_board_${player.boards.length + 1}`,
+                expression: `[${values.join(', ')}]`,
+                dimension: dim,
+              },
+            };
+          }
+          case 'matrix': {
+            const expression = CARD_EFFECT_PARAMS_BY_ID.get(cardId)?.expr;
+            if (typeof expression !== 'string' || expression === '') {
+              return { ok: false, reason: 'matrix expression unavailable' };
+            }
+            return {
+              intent: 'matrix',
+              payload: {
+                playerId,
+                cardId,
+                boardId: `${playerId}_board_${player.boards.length + 1}`,
+                expression,
+              },
+            };
+          }
+          case 'transform': {
+            const kind = CARD_EFFECT_PARAMS_BY_ID.get(cardId)?.kind;
+            if (typeof kind !== 'string' || kind === '') {
+              return { ok: false, reason: 'transform kind unavailable' };
+            }
+            return { intent: 'transform', payload: { playerId, cardId, boardId, kind } };
+          }
+          case 'eigenvalue':
+            return {
+              intent: 'eigenvalue',
+              payload: {
+                playerId,
+                cardId,
+                targetPlayerId: attackPayload.targetPlayerId,
+                targetBoardId: attackPayload.targetBoardId,
+              },
+            };
           default:
             return undefined;
         }

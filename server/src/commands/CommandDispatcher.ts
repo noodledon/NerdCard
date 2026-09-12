@@ -5,15 +5,19 @@ import { AttackHpCommand, type AttackHpPayload } from './AttackHpCommand.js';
 import { CompositionCommand, type CompositionPayload } from './CompositionCommand.js';
 import { DrawCommand, type DrawPayload } from './DrawCommand.js';
 import { DerivativeCommand, type DerivativePayload } from './DerivativeCommand.js';
+import { EigenvalueCommand, type EigenvaluePayload } from './EigenvalueCommand.js';
 import { EvalCommand, type EvalPayload } from './EvalCommand.js';
 import { ForceEvalCommand, type ForceEvalPayload } from './ForceEvalCommand.js';
 import { IntegralCommand, type IntegralPayload } from './IntegralCommand.js';
 import { LimitCommand, type LimitPayload } from './LimitCommand.js';
+import { MatrixCommand, type MatrixPayload } from './MatrixCommand.js';
 import { ModularCommand, type ModularPayload } from './ModularCommand.js';
 import { NtTheoremCommand, type NtTheoremPayload } from './NtTheoremCommand.js';
+import { TransformCommand, type TransformPayload } from './TransformCommand.js';
 import { TheoremArtifactCommand, type TheoremArtifactPayload } from './TheoremArtifactCommand.js';
 import { TheoremMartialCommand } from './TheoremMartialCommand.js';
 import { TrapCommand, type TrapPayload } from './TrapCommand.js';
+import { VectorCommand, type VectorPayload } from './VectorCommand.js';
 import { PlayDefenseCommand, type PlayDefensePayload } from './PlayDefenseCommand.js';
 import type { CommandContext, CommandResult, CommandState, GameCommand } from './base.js';
 
@@ -33,6 +37,10 @@ export type CommandIntent =
   | { intent: 'limit'; payload: LimitPayload }
   | { intent: 'modular'; payload: ModularPayload }
   | { intent: 'nt-theorem'; payload: NtTheoremPayload }
+  | { intent: 'vector'; payload: VectorPayload }
+  | { intent: 'matrix'; payload: MatrixPayload }
+  | { intent: 'transform'; payload: TransformPayload }
+  | { intent: 'eigenvalue'; payload: EigenvaluePayload }
   | { intent: 'build-function'; payload: BuildFunctionCommandPayload }
   | { intent: 'play-defense'; payload: PlayDefensePayload };
 
@@ -61,6 +69,10 @@ export class CommandDispatcher {
       case 'limit': return new LimitCommand() as GameCommand<unknown>;
       case 'modular': return new ModularCommand() as GameCommand<unknown>;
       case 'nt-theorem': return new NtTheoremCommand() as GameCommand<unknown>;
+      case 'vector': return new VectorCommand() as GameCommand<unknown>;
+      case 'matrix': return new MatrixCommand() as GameCommand<unknown>;
+      case 'transform': return new TransformCommand() as GameCommand<unknown>;
+      case 'eigenvalue': return new EigenvalueCommand() as GameCommand<unknown>;
       case 'build-function': return new BuildFunctionCommand() as GameCommand<unknown>;
       case 'play-defense': return new PlayDefenseCommand() as GameCommand<unknown>;
     }

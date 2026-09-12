@@ -226,6 +226,18 @@ func _first_active_board_id(local_player: Dictionary) -> String:
 	return ""
 
 
+## First active board holding a 2-D matrix — Transform Lens / Eigen Lance
+## only affect matrix boards (anything else fizzles server-side; see
+## server/src/math/linalg.ts for the detection rule this mirrors).
+func _first_active_matrix_board_id(player: Dictionary) -> String:
+	for board in player.get("boards", []):
+		if not bool(board.get("isActive", false)):
+			continue
+		if String(board.get("domain", "")) == "matrix" or String(board.get("expression", "")).begins_with("matrix("):
+			return String(board.get("boardId", ""))
+	return ""
+
+
 ## Number-deck cards (Prime/Irrational — anything carrying a numeric
 ## payload) arm as attack factors instead of playing directly. Anchor VVCs
 ## also match but are routed earlier by subtype.
@@ -648,6 +660,41 @@ func _on_card_clicked(card_id: String) -> void:
 		ConnectionManager.send_intent("play_card", {
 			"cardId": card_id,
 			"target": nt_target,
+		})
+		return
+
+	## Vector Shift / Matrix Weave create a new board on the caster — the
+	## server mints the board id, so no target is needed ('none').
+	if card_type == "vector" or card_type == "matrix":
+		ConnectionManager.send_intent("play_card", {
+			"cardId": card_id,
+			"target": {"kind": "none"},
+		})
+		return
+
+	## Transform Lens rewrites an own matrix board to its LUP U factor —
+	## prefer the first active own matrix board, else first active board.
+	if card_type == "transform":
+		var lens_board_id: String = _first_active_matrix_board_id(local_player)
+		if lens_board_id == "":
+			lens_board_id = _first_active_board_id(local_player)
+		var lens_target: Dictionary = {"kind": "self_board", "id": lens_board_id} if lens_board_id != "" else {"kind": "none"}
+		ConnectionManager.send_intent("play_card", {
+			"cardId": card_id,
+			"target": lens_target,
+		})
+		return
+
+	## Eigen Lance kills a singular opponent matrix board — prefer their
+	## first active matrix board, else their first active board.
+	if card_type == "eigenvalue":
+		var lance_board_id: String = _first_active_matrix_board_id(GameModel.opponent_player())
+		if lance_board_id == "":
+			lance_board_id = _first_active_board_id(GameModel.opponent_player())
+		var lance_target: Dictionary = {"kind": "opp_board", "id": lance_board_id} if lance_board_id != "" else {"kind": "none"}
+		ConnectionManager.send_intent("play_card", {
+			"cardId": card_id,
+			"target": lance_target,
 		})
 		return
 
