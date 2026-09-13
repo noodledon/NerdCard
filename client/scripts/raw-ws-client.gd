@@ -1,12 +1,12 @@
-## FALLBACK raw websocket client.
+## Raw websocket client — the client's ONLY transport.
 ##
-## The official colyseus-godot SDK uses msgpack and the room protocol;
-## this fallback speaks simplified JSON-encoded state patches and is
-## intended ONLY if the SDK proves broken under Godot 4.7+ during T5
-## verification. Server-side Colyseus still speaks its native protocol —
-## fallback would require a server-side JSON bridge (Wave 2 app.config additions).
-##
-## This is the ACTIVE connection path while the SDK is unavailable.
+## T5 verification (scripts/colyseus-verify.md) found the official
+## colyseus-godot SDK unavailable under Godot 4.7, so this speaks
+## simplified JSON-encoded frames to the server's JSON bridge
+## (server/src/json-bridge.ts, ws://localhost:2568). Server-side Colyseus
+## still speaks its native protocol on :2567, but that room is a
+## single-room legacy/dev path — no multi-room, rematch, room-list, or
+## mode support (all bridge-only).
 
 extends Node
 class_name RawWsClient

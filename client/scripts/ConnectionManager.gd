@@ -1,11 +1,11 @@
 ## ConnectionManager — autoload singleton (T18).
 ##
-## Single ingress/egress point between Godot and the Colyseus server. Wraps
+## Single ingress/egress point between Godot and the server. Wraps
 ## RawWsClient (scripts/raw-ws-client.gd) because T5 verification
 ## (scripts/colyseus-verify.md) found the official colyseus-godot SDK
-## unavailable under Godot 4.7 — SDK-BROKEN-FALLBACK. The SDK branch
-## (ColyseusConnection.gd) is kept only as an inert stub; this is the ONLY
-## active connection path.
+## unavailable under Godot 4.7 — SDK-BROKEN-FALLBACK. The SDK stub
+## (ColyseusConnection.gd) was removed in wave-14 T3; this is the ONLY
+## client transport.
 ##
 ## Wire protocol (client <-> server), matching server/src/shared/messages.ts:
 ##   Outgoing intents: the ten canonical ClientMessage types verbatim, each a
