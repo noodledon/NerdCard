@@ -73,7 +73,7 @@ export interface EffectPayload {
   kind: EffectType;
 }
 
-export type WinReason = 'hp_zero' | 'variable_isolation' | 'force_eval_domination' | 'singular_board' | 'undefined_integral_loss' | 'abandoned';
+export type WinReason = 'hp_zero' | 'variable_isolation' | 'force_eval_domination' | 'singular_board' | 'undefined_integral_loss' | 'abandoned' | 'stalled';
 
 export interface PlayerState {
   id: string;

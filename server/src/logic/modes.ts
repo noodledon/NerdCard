@@ -80,6 +80,27 @@ export interface ModeProfile {
   /** Behavior of the §8.5 auto showdown: 'standard' | 'soft_wipe'. */
   stallingEval: 'standard' | 'soft_wipe';
   /**
+   * §8.5 endgame resolution — what a stalling trigger does once
+   * `global_no_eval_turns` sits at its cap (STALLING_GLOBAL_LIMIT). The
+   * consecutive cap and every sub-cap trip keep the per-trip `stallingEval`;
+   * this field only governs the never-resetting global cap, where a
+   * non-terminal answer fires every turn forever (wave-14 T2 / OQ-8: VI's
+   * every-turn soft_wipe left no win path — an unterminable limbo).
+   *
+   * - 'soft_wipe': no terminal resolution — the mode's `stallingEval` keeps
+   *   running on each tripped turn (v1 default: v1 modes need none because
+   *   their standard showdown is already decisive — a failed nomination
+   *   keeps costing boards and hp0/domination/board-wipe still end the
+   *   match).
+   * - 'showdown': run the standard force-eval showdown (evaluate both mains
+   *   at vvc=1, domination/penalty outcome). Does not by itself guarantee
+   *   termination — a mode with `win.forceDomination` off never declares
+   *   the domination branch, so a failed nomination just costs a board.
+   * - 'draw': declare the match a draw once — game over, no winner,
+   *   winReason 'stalled'.
+   */
+  stallingResolution: 'soft_wipe' | 'showdown' | 'draw';
+  /**
    * Cards allowed to target opp_board beyond their v1 scope (mode overlay —
    * catalog targetRules stay frozen). Keyed by cardType. Consumed by the VI
    * rules task; empty maps mean v1 targeting.
@@ -102,6 +123,7 @@ export const MODE_PROFILES: Record<GameMode, ModeProfile> = {
     rebuildDestroyedBoards: false,
     forceEvalCard: true,
     stallingEval: 'standard',
+    stallingResolution: 'soft_wipe',
     offensiveTargeting: {},
   },
   // Doc §3 — "win only by isolating opponent's variables". HP stays live but
@@ -109,6 +131,10 @@ export const MODE_PROFILES: Record<GameMode, ModeProfile> = {
   // instead of destroying the staller's board so they stay isolatable
   // (§3.3/OQ-11); derivative/limit gain the opp_board arsenal overlay (OQ-3);
   // an undefined eval still destroys its board but cannot win (OQ-12).
+  // W14 T2: past the global stalling cap the match draws — a showdown could
+  // not end it (domination is gated off; a failed nomination only leaves the
+  // nominator un-isolatable), so 'draw' is the resolution that guarantees no
+  // unterminable limbo while keeping isolation the only way to WIN.
   variable_isolation: {
     win: { hpZero: false, isolation: true, forceDomination: false, boardWipe: false, undefinedIntegralLoss: false },
     isolationMaxVars: 1,
@@ -118,6 +144,7 @@ export const MODE_PROFILES: Record<GameMode, ModeProfile> = {
     rebuildDestroyedBoards: true,
     forceEvalCard: false,
     stallingEval: 'soft_wipe',
+    stallingResolution: 'draw',
     offensiveTargeting: { derivative: 'opp_board', limit: 'opp_board' },
   },
   // Doc §4 — "pure HP attack mode". Isolation off; force-dom and board-wipe
@@ -134,6 +161,7 @@ export const MODE_PROFILES: Record<GameMode, ModeProfile> = {
     rebuildDestroyedBoards: false,
     forceEvalCard: true,
     stallingEval: 'standard',
+    stallingResolution: 'soft_wipe',
     offensiveTargeting: {},
   },
 };

@@ -26,6 +26,13 @@ export const PLAY_MS = 30_000;
 export const DEFENSE_MS = 15_000;
 export const CONSTRUCTION_MS = 60_000;
 
+/**
+ * §8.5 stalling bounds (locked constraint): the consecutive counter trips at
+ * 5 and resets on any eval; the global counter trips at 20 and never resets.
+ */
+export const STALLING_CONSECUTIVE_LIMIT = 5;
+export const STALLING_GLOBAL_LIMIT = 20;
+
 export const legalTransitions: Record<Phase, Phase[]> = {
   waiting: [Phase.construction],
   construction: [Phase.draw, Phase.gameOver],
@@ -85,18 +92,18 @@ export function onEvalTurn(state: FSMState): FSMEvent[] {
 /** Increment the bounded stalling counters and signal forced evaluation at caps. */
 export function onNoEvalTurn(state: FSMState): FSMEvent[] {
   state.consecutive_no_eval_turns = Math.min(
-    5,
+    STALLING_CONSECUTIVE_LIMIT,
     Math.max(0, state.consecutive_no_eval_turns + 1),
   );
   state.global_no_eval_turns = Math.min(
-    20,
+    STALLING_GLOBAL_LIMIT,
     Math.max(0, state.global_no_eval_turns + 1),
   );
 
   const events: FSMEvent[] = [];
   if (
-    state.consecutive_no_eval_turns === 5 ||
-    state.global_no_eval_turns === 20
+    state.consecutive_no_eval_turns === STALLING_CONSECUTIVE_LIMIT ||
+    state.global_no_eval_turns === STALLING_GLOBAL_LIMIT
   ) {
     events.push('force-eval');
   }
@@ -109,11 +116,11 @@ export class PhaseFSM {
   constructor(state: FSMState) {
     this.state = state;
     this.state.consecutive_no_eval_turns = Math.min(
-      5,
+      STALLING_CONSECUTIVE_LIMIT,
       Math.max(0, this.state.consecutive_no_eval_turns),
     );
     this.state.global_no_eval_turns = Math.min(
-      20,
+      STALLING_GLOBAL_LIMIT,
       Math.max(0, this.state.global_no_eval_turns),
     );
   }
