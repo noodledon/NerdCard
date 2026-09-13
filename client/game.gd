@@ -121,6 +121,20 @@ const DECK_BUTTON_BASE_TEXT: Dictionary = {
 const MATH_GREEN: Color = Color(0, 1, 0.533)
 const TEXT_DIM: Color = Color(0.604, 0.604, 0.69)
 
+## HP-delta floater styling (wave-14 T4): gains reuse math green, losses
+## reuse PlayerPanel's low-HP red.
+const HP_LOSS_RED: Color = Color(1, 0.2, 0.267)
+const HP_DELTA_HOLD_SEC: float = 0.5
+const HP_DELTA_FADE_SEC: float = 0.9
+
+## Phase-change flash on TurnPhaseLabel (wave-14 T4): over-brighten, then
+## settle back so the PHASE_COLORS entry shows through again. Rides
+## self_modulate — NOT the font_color override — because _render_from_model
+## rewrites font_color on every 100ms snapshot and would stomp a color
+## tween mid-flight.
+const PHASE_FLASH_COLOR: Color = Color(2.4, 2.4, 2.4)
+const PHASE_FLASH_SEC: float = 0.6
+
 ## Identifier tokens that are functions/constants, not variables — used by
 ## _expression_variable to guess a board's variable for composition plays.
 const RESERVED_EXPR_NAMES: Array = [
@@ -180,6 +194,29 @@ var _mode_badge_label: Label
 var _isolation_badge_local: Label
 var _isolation_badge_opponent: Label
 
+## HP delta floaters — one code-built Label per panel, parented to the
+## panel's HPLabel itself so the CardInner VBox layout never shifts when a
+## "+1.0"/"-2.0" appears (same overlay convention as the isolation badges;
+## PlayerPanel.tscn untouched). _prev_hp10_* tracks the last rendered value
+## per panel — null until a populated player first renders, so the first
+## snapshot never flashes a delta.
+var _hp_delta_local: Label
+var _hp_delta_opponent: Label
+var _hp_delta_tweens: Dictionary = {}  # Label -> Tween (active fade)
+var _prev_hp10_local: Variant = null
+var _prev_hp10_opponent: Variant = null
+
+## Active phase-flash tween on TurnPhaseLabel (see PHASE_FLASH_* above).
+var _phase_flash_tween: Tween = null
+
+## True while a join carrying our held seat credentials is in flight —
+## mirrors ConnectionManager._rejoin_attempted (every join while
+## GameModel.local_session_id is non-empty carries sessionId +
+## reconnectToken, whether a manual Connect or the ~1s auto-retry after a
+## drop). Lets the status line say "Reconnecting…"/"Seat reclaimed"
+## instead of a bare "Connected".
+var _reconnect_pending: bool = false
+
 ## Rematch button, code-built into the scene's GameOverVBox in _ready (same
 ## convention as the defense banner — game.tscn untouched). Rematch votes
 ## ride the game_event stream, not snapshots, so the opponent's vote is
@@ -210,6 +247,7 @@ func _ready() -> void:
 	_build_mode_picker()
 	_build_mode_badge()
 	_build_isolation_badges()
+	_build_hp_delta_labels()
 	_build_rematch_button()
 	_render_from_model()
 
@@ -304,6 +342,24 @@ func _make_isolation_badge(panel: PlayerPanel) -> Label:
 	return badge
 
 
+## One "+1.0"/"-2.0" floater per panel, parented to its HPLabel — a Label
+## child positioned beside the HP text (see _show_hp_delta) instead of a
+## CardInner row, so the VBox layout never shifts when it appears.
+func _build_hp_delta_labels() -> void:
+	_hp_delta_local = _make_hp_delta_label(local_panel)
+	_hp_delta_opponent = _make_hp_delta_label(opponent_panel)
+
+
+func _make_hp_delta_label(panel: PlayerPanel) -> Label:
+	var hp_label: Label = panel.get_node("Card/CardInner/HPLabel")
+	var badge := Label.new()
+	badge.add_theme_font_size_override("font_size", 14)
+	badge.mouse_filter = Control.MOUSE_FILTER_IGNORE
+	badge.visible = false
+	hp_label.add_child(badge)
+	return badge
+
+
 ## The picker's wire value — the selected item's metadata, defaulting to
 ## the first entry (nerdiclash).
 func _selected_mode() -> String:
@@ -360,7 +416,10 @@ func _on_room_listed(rooms: Array) -> void:
 
 
 func _on_connect_button_pressed() -> void:
-	status_label.text = "Connecting..."
+	## A held sessionId turns the join into a seat-reclaim attempt
+	## (ConnectionManager._rejoin_attempted) — say so up front.
+	_reconnect_pending = GameModel.local_session_id != ""
+	status_label.text = "Reconnecting…" if _reconnect_pending else "Connecting..."
 	ConnectionManager.connect_to_server(ip_line_edit.text, "", _room_line_edit.text, _selected_mode())
 
 
@@ -392,7 +451,13 @@ func _on_connected(role: String) -> void:
 	## authoritative mode, which may differ from the picker's request only
 	## on a seat reclaim.
 	var mode_text: String = _mode_label(ConnectionManager.confirmed_mode)
-	status_label.text = "Connected as %s" % role if mode_text == "" else "Connected as %s — %s" % [role, mode_text]
+	## _reconnect_pending mirrors _rejoin_attempted: the join carried our
+	## old sessionId and the bridge kept us on the same seat. SEAT_GONE /
+	## ROOM_FULL already cleared the flag when a reclaim fell through to a
+	## fresh seat, so this only reads "Seat reclaimed" on a true reclaim.
+	var base: String = ("Seat reclaimed as %s" if _reconnect_pending else "Connected as %s") % role
+	_reconnect_pending = false
+	status_label.text = base if mode_text == "" else "%s — %s" % [base, mode_text]
 
 
 func _on_state_changed(_snapshot: Dictionary) -> void:
@@ -403,6 +468,10 @@ func _on_state_changed(_snapshot: Dictionary) -> void:
 	var phase: String = String(GameModel.state.get("phase", ""))
 	if phase != _last_phase:
 		_armed_deck = ""
+		## The first snapshot is initialization, not a transition — flash
+		## only real phase changes (wave-14 T4).
+		if _last_phase != "":
+			_flash_phase_label()
 		_last_phase = phase
 	_render_from_model()
 
@@ -410,7 +479,19 @@ func _on_state_changed(_snapshot: Dictionary) -> void:
 func _on_connection_error(code: String, message: String) -> void:
 	if code == "ERR_CONNECT_FAILED" or code == "ERR_CONNECT":
 		status_label.text = "Connection failed"
-	elif code == "ERR_DISCONNECTED" or code == "ROOM_FULL" or code == "SEAT_GONE":
+	elif code == "ERR_DISCONNECTED":
+		## With a held sessionId the ~1s auto-retry is a seat-reclaim join —
+		## only the "retrying" message actually schedules it; a second
+		## consecutive drop says "press Connect" and waits for the user.
+		if GameModel.local_session_id != "" and message.contains("retrying"):
+			_reconnect_pending = true
+			status_label.text = "Reconnecting…"
+		else:
+			status_label.text = "Disconnected"
+	elif code == "ROOM_FULL" or code == "SEAT_GONE":
+		## The reclaim attempt failed — a following "connected" (SEAT_GONE
+		## falls through to a fresh seat) is not a reclaim.
+		_reconnect_pending = false
 		status_label.text = "Disconnected"
 	elif code == "GAME_OVER":
 		status_label.text = "Game over"
@@ -447,6 +528,8 @@ func _render_from_model() -> void:
 	var opponent_player: Dictionary = GameModel.opponent_player()
 	local_panel.update_from_player(local_player, "You", "Your HP: ")
 	opponent_panel.update_from_player(opponent_player, "Opponent", "Opponent HP: ")
+	_prev_hp10_local = _render_hp_delta(_hp_delta_local, local_player, _prev_hp10_local)
+	_prev_hp10_opponent = _render_hp_delta(_hp_delta_opponent, opponent_player, _prev_hp10_opponent)
 
 	_prune_selections(local_player)
 	_render_deck_counts(local_player)
@@ -868,6 +951,54 @@ func _render_isolation_badge(badge: Label, timers: Dictionary, player: Dictionar
 	badge.visible = turns_left != null
 	if turns_left != null:
 		badge.text = "isolated: %d turns left" % int(turns_left)
+
+
+## Returns the panel's new hp10 baseline, flashing a fading "+1.0"/"-2.0"
+## beside the HP text when the snapshot moved it off the previously
+## rendered value. prev == null — first render, or an empty player dict
+## reset it (leave/seat teardown) — records the baseline without flashing.
+func _render_hp_delta(badge: Label, player: Dictionary, prev_hp10: Variant) -> Variant:
+	if player.is_empty():
+		return null
+	var hp10: int = int(player.get("hp10", 0))
+	if prev_hp10 != null and hp10 != int(prev_hp10):
+		_show_hp_delta(badge, hp10 - int(prev_hp10))
+	return hp10
+
+
+## Gains in math green, damage in low-HP red; hold briefly, then fade out.
+## A retrigger mid-fade kills the old tween and restarts opaque.
+func _show_hp_delta(badge: Label, delta10: int) -> void:
+	var delta: float = delta10 / 10.0
+	badge.text = "+%.1f" % delta if delta > 0.0 else "%.1f" % delta
+	badge.add_theme_color_override("font_color", MATH_GREEN if delta > 0.0 else HP_LOSS_RED)
+	## Parked just right of the HP text — the badge is an HPLabel child, so
+	## position is relative to it; measure the rendered string (the label's
+	## VBox slot is full-width, far wider than the text itself).
+	var hp_label := badge.get_parent() as Label
+	var text_w: float = hp_label.get_theme_font("font").get_string_size(
+		hp_label.text, HORIZONTAL_ALIGNMENT_LEFT, -1, hp_label.get_theme_font_size("font_size")
+	).x
+	badge.position = Vector2(text_w + 8, 3)
+	badge.self_modulate = Color(1, 1, 1)
+	badge.visible = true
+	var old_tween := _hp_delta_tweens.get(badge) as Tween
+	if old_tween != null and old_tween.is_valid():
+		old_tween.kill()
+	var tween := create_tween()
+	_hp_delta_tweens[badge] = tween
+	tween.tween_property(badge, "self_modulate:a", 0.0, HP_DELTA_FADE_SEC).set_delay(HP_DELTA_HOLD_SEC)
+	tween.tween_callback(badge.hide)
+
+
+## Briefly over-brightens TurnPhaseLabel, then eases back to white so the
+## phase's PHASE_COLORS font_color shows through again (wave-14 T4).
+func _flash_phase_label() -> void:
+	if _phase_flash_tween != null and _phase_flash_tween.is_valid():
+		_phase_flash_tween.kill()
+	turn_phase_label.self_modulate = PHASE_FLASH_COLOR
+	_phase_flash_tween = create_tween()
+	_phase_flash_tween.tween_property(turn_phase_label, "self_modulate", Color(1, 1, 1), PHASE_FLASH_SEC)
 
 
 func _render_deck_counts(local_player: Dictionary) -> void:
