@@ -28,6 +28,9 @@ export class TrapCommand extends GameCommand<TrapPayload> {
     if (player.trapCardId) return failure('trap slot occupied');
     const card = requiredCard(player, trapCardId);
     if (isFailure(card)) return card;
+    // Hand membership alone isn't enough — only a trap card may arm the trap
+    // slot. Any other card id would otherwise become a Showdown counter.
+    if (card.cardType !== 'trap') return failure('trap card required');
 
     player.trapCardId = trapCardId;
     markAggressiveActionUsed(player);

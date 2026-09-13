@@ -8,7 +8,7 @@ import { TrapCommand } from '../../commands/TrapCommand.js';
 import { evaluate } from '../../logic/evalEngine.js';
 import type { CommandContext, CommandState } from '../../commands/base.js';
 
-interface TestCard { id: string; cardType?: string; subtype?: string; deckType?: string; value?: number; }
+interface TestCard { id: string; cardType?: string; subtype?: string; deckType?: string; value?: number; numericValue?: string; }
 
 function player(id: string, hand: TestCard[] = []) {
   return {
@@ -105,10 +105,10 @@ describe('deferred attack resolution', () => {
     expect(result).toEqual({ ok: true, damage10: 5, pending: true });
   });
 
-  it('scales the pending damage by a bound number card', () => {
+  it('scales the pending damage by a bound number card and consumes it', () => {
     const p1 = player('p1', [
       { id: 'atk-1', cardType: 'offensive' },
-      { id: 'num-1', value: 2 },
+      { id: 'num-1', deckType: 'number', subtype: 'Prime', value: 2 },
     ]);
     const p2 = player('p2');
     const gameState = state([p1, p2]);
@@ -122,8 +122,33 @@ describe('deferred attack resolution', () => {
     expect(result).toEqual({ ok: true, damage10: 10, pending: true });
     expect(gameState.pendingAttackDamage10).toBe(10);
     expect(p2.hp10).toBe(100);
-    // The bound spell card reaching the graveyard unbinds the factor (doc §7).
+    // Both cards travel to the graveyard — the factor is a spent resource,
+    // not a permanent in-hand multiplier (doc §7 bound-until-graveyard).
+    expect(p1.hand.map((card) => card.id)).toEqual([]);
+    expect(p1.discardGraveyard.map((card) => card.id)).toEqual(['atk-1', 'num-1']);
+    // The bound spell card reaching the graveyard unbinds the factor.
     expect(p1.boundFactor).toBeNull();
+  });
+
+  it('rejects an Anchor as a bound factor — eval fuel is not a multiplier', () => {
+    const p1 = player('p1', [
+      { id: 'atk-1', cardType: 'offensive' },
+      { id: 'vvc-4', deckType: 'number', subtype: 'Anchor', value: 10 },
+    ]);
+    const p2 = player('p2');
+    const gameState = state([p1, p2]);
+    const command = new AttackHpCommand();
+    command.state = gameState;
+
+    const result = command.execute({
+      playerId: 'p1', cardId: 'atk-1', targetPlayerId: 'p2', damage10: 5, numberCardId: 'vvc-4',
+    });
+
+    expect(result.ok).toBe(false);
+    expect(result.reason).toBe('number factor must be a number card');
+    // Nothing was spent or recorded — the attack never happened.
+    expect(p1.hand.length).toBe(2);
+    expect(gameState.pendingAttackDamage10).toBeUndefined();
   });
 });
 
@@ -198,6 +223,21 @@ describe('trap semantics', () => {
     expect(p1.hand.map((card) => card.id)).toEqual(['trap-1']);
     expect(p1.discardGraveyard).toEqual([]);
     expect(p1.aggressiveActionUsedThisTurn).toBe(true);
+  });
+
+  it('rejects arming a non-trap card — hand membership is not enough', () => {
+    const p1 = player('p1', [{ id: 'vvc-1', cardType: 'anchor', subtype: 'Anchor' }]);
+    const gameState = state([p1, player('p2')]);
+    const command = new TrapCommand();
+    command.state = gameState;
+
+    const result = command.execute({ playerId: 'p1', trapCardId: 'vvc-1' });
+
+    // Any card id used to arm the slot — turning e.g. an Anchor into a
+    // Showdown counter and pinning trapCardId to a non-trap.
+    expect(result).toEqual({ ok: false, reason: 'trap card required' });
+    expect(p1.trapCardId).toBe('');
+    expect(p1.aggressiveActionUsedThisTurn).toBe(false);
   });
 
   it('counters a force evaluation', () => {
@@ -333,7 +373,38 @@ describe('eval semantics', () => {
     expect(result).toEqual({ ok: true, boardDestroyed: true });
     expect(p1.boards[0]!.destroyed).toBe(true);
     expect(p1.boards[0]!.isActive).toBe(false);
+    // The eval resolved — it counts as this turn's evaluation for stalling
+    // purposes, same as a clean eval (a missed flag here feeds a phantom
+    // no-eval turn and eventually a wrongful §8.5 showdown).
+    expect(p1.evaluatedThisTurn).toBe(true);
     expect(p1.discardGraveyard.map((card) => card.id)).toEqual(['vvc-1', 'eval-1']);
+  });
+
+  it('feeds a symbolic Anchor (numericValue) into the engine — not 0', () => {
+    const p1 = player('p1', [
+      { id: 'vvc-pi', subtype: 'Anchor', numericValue: 'pi' },
+      { id: 'eval-1', subtype: 'Eval' },
+    ]);
+    const gameState = state([p1, player('p2')]);
+    let seenVvc = Number.NaN;
+    const command = new EvalCommand();
+    command.state = gameState;
+    command.roomRef = {
+      evalEngine: {
+        // Catalog Anchors like π carry their value as a string in
+        // numericValue — vvc.value is undefined for them, so reading the
+        // numeric field directly substituted 0 for every variable.
+        evaluate: (_req: { expression: string }, _boardIndex: number, vvcValue: number) => {
+          seenVvc = vvcValue;
+          return { undefined: false, hpGain10: 10 };
+        },
+      },
+    };
+
+    const result = command.execute({ playerId: 'p1', boardIndex: 0, vvcCardId: 'vvc-pi' });
+
+    expect(result.ok).toBe(true);
+    expect(seenVvc).toBeCloseTo(Math.PI, 5);
   });
 
   it('spends both cards when the eval fizzles on a dead board', () => {

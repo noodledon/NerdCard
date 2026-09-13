@@ -416,6 +416,10 @@ func _on_room_listed(rooms: Array) -> void:
 
 
 func _on_connect_button_pressed() -> void:
+	## Already seated: ConnectionManager ignores the call, so don't clobber
+	## the status line with a "Connecting..." that never resolves.
+	if ConnectionManager.is_connected_to_room():
+		return
 	## A held sessionId turns the join into a seat-reclaim attempt
 	## (ConnectionManager._rejoin_attempted) — say so up front.
 	_reconnect_pending = GameModel.local_session_id != ""
@@ -495,6 +499,11 @@ func _on_connection_error(code: String, message: String) -> void:
 		status_label.text = "Disconnected"
 	elif code == "GAME_OVER":
 		status_label.text = "Game over"
+	elif code == "INVALID_PAYLOAD" or code == "MODE_MISMATCH" or code == "ALREADY_JOINED":
+		## The bridge keeps the socket open on join rejections — without a
+		## status update the label stays stuck on "Connecting..." forever.
+		if not ConnectionManager.is_connected_to_room():
+			status_label.text = "Join rejected"
 	## A drop/ROOM_FULL leaves us unseated — Leave only exists while the
 	## bridge still holds a seat for this socket.
 	_leave_button.visible = ConnectionManager.is_connected_to_room()
@@ -866,6 +875,11 @@ func _build_rematch_button() -> void:
 ## 'rematch' game_event; a second vote from the opponent flips the room to
 ## a fresh construction game on the same seats.
 func _on_rematch_pressed() -> void:
+	## Guard the flag on an actual send — send_intent drops silently when
+	## the seat is gone, and a stuck "Waiting for opponent…" button never
+	## recovers (the gameOver phase never ends to reset it).
+	if not ConnectionManager.is_connected_to_room():
+		return
 	_rematch_voted = true
 	ConnectionManager.send_intent("rematch")
 	_render_game_over(String(GameModel.state.get("phase", "")), GameModel.state)
@@ -1250,9 +1264,11 @@ func _update_action_button_states(local_player: Dictionary) -> void:
 	var phase: String = String(GameModel.state.get("phase", ""))
 	var is_local_turn: bool = GameModel.is_local_turn()
 
-	## During defense the turn button stays off — the defender answers via
-	## the banner's Pass button (which also sends end_turn).
-	end_turn_button.disabled = not is_local_turn or phase == "resolution" or phase == "defense"
+	## End Turn is only meaningful in the local play phase — enabling it in
+	## waiting/construction/draw just earns a server rejection. During
+	## defense the defender answers via the banner's Pass button instead
+	## (which also sends end_turn).
+	end_turn_button.disabled = not is_local_turn or phase != "play"
 
 	var has_active_board: bool = _first_active_board_id(local_player) != ""
 	var has_eval_card: bool = false

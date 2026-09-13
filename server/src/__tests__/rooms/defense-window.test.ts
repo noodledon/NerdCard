@@ -139,6 +139,32 @@ describe('draw_cards validation', () => {
     expect(requirePlayer(game, 'p1').hand.length).toBe(handBefore);
     expect(game.state.phase).toBe(Phase.draw);
   });
+
+  it('rejects the whole batch when a later choice cannot be satisfied (no partial draw)', async () => {
+    const game = new NerdiClashGame();
+    game.addPlayer('p1', 'Player One');
+    game.addPlayer('p2', 'Player Two');
+    game.startGame();
+    await dispatch(game, 'p1', 'build_function', { boardId: boardIdFor(game, 'p1'), expression: 'x^2' });
+    await dispatch(game, 'p2', 'build_function', { boardId: boardIdFor(game, 'p2'), expression: 'x^2' });
+    expect(game.state.phase).toBe(Phase.draw);
+    // Starve the number pile AND the graveyard: pile + recyclable < count
+    // means DrawCommand could never satisfy the second choice.
+    const p1 = requirePlayer(game, 'p1');
+    p1.deckNumber.splice(0);
+    p1.discardGraveyard.splice(0);
+    const handBefore = p1.hand.length;
+
+    const result = await dispatch(game, 'p1', 'draw_cards', {
+      deckChoices: [{ deck: 'fcc', count: 1 }, { deck: 'number', count: 1 }],
+    });
+    expect(result.ok).toBe(false);
+    expect(result.reason).toContain('number');
+    // Atomicity: the satisfiable fcc choice must not have drawn either —
+    // otherwise a retry would overdraw the 2-card quota.
+    expect(p1.hand.length).toBe(handBefore);
+    expect(game.state.phase).toBe(Phase.draw);
+  });
 });
 
 describe('defense window', () => {
@@ -254,6 +280,77 @@ describe('defense window', () => {
     game.tick(game.state.turnDeadline + 1);
     expect(game.state.phase).toBe(Phase.draw);
     expect(game.state.currentTurnPlayerId).toBe('p2');
+  });
+
+  it('counts the attack turn exactly once across the play→defense→resolution deadline path', async () => {
+    const game = await gameInPlay();
+    giveCard(game, 'p1', 'act-offensive-001');
+    await dispatch(game, 'p1', 'play_card', {
+      cardId: 'act-offensive-001',
+      target: { kind: 'opp', id: 'p2' },
+    });
+    const consecutive = game.state.consecutive_no_eval_turns;
+    const global = game.state.global_no_eval_turns;
+
+    // Play deadline → the intercept settles p1's turn once (+1 each) and
+    // opens the defense window.
+    game.tick(game.state.turnDeadline + 1);
+    expect(game.state.phase).toBe(Phase.defense);
+    expect(game.state.consecutive_no_eval_turns).toBe(consecutive + 1);
+    expect(game.state.global_no_eval_turns).toBe(global + 1);
+
+    // Defense deadline → resolution continues the SAME turn — a second
+    // bookkeeping pass would double-count the stalling counters.
+    game.tick(game.state.turnDeadline + 1);
+    expect(game.state.phase).toBe(Phase.draw);
+    expect(game.state.consecutive_no_eval_turns).toBe(consecutive + 1);
+    expect(game.state.global_no_eval_turns).toBe(global + 1);
+  });
+
+  it('does not re-count the turn when end_turn already settled it before the defense deadline', async () => {
+    const game = await gameInPlay();
+    giveCard(game, 'p1', 'act-offensive-001');
+    await dispatch(game, 'p1', 'play_card', {
+      cardId: 'act-offensive-001',
+      target: { kind: 'opp', id: 'p2' },
+    });
+    const consecutive = game.state.consecutive_no_eval_turns;
+    const global = game.state.global_no_eval_turns;
+
+    game.requestEndTurn('p1');
+    expect(game.state.phase).toBe(Phase.defense);
+    expect(game.state.consecutive_no_eval_turns).toBe(consecutive + 1);
+    expect(game.state.global_no_eval_turns).toBe(global + 1);
+
+    game.tick(game.state.turnDeadline + 1);
+    expect(game.state.phase).toBe(Phase.draw);
+    expect(game.state.consecutive_no_eval_turns).toBe(consecutive + 1);
+    expect(game.state.global_no_eval_turns).toBe(global + 1);
+  });
+
+  it('settles flags and eval attribution on the deadline intercept', async () => {
+    const game = await gameInPlay();
+    const p1 = requirePlayer(game, 'p1');
+    // Simulate a turn that DID evaluate — the intercept must read this flag
+    // before resetting it, not blindly count a no-eval turn.
+    p1.evaluatedThisTurn = true;
+    giveCard(game, 'p1', 'act-offensive-001');
+    await dispatch(game, 'p1', 'play_card', {
+      cardId: 'act-offensive-001',
+      target: { kind: 'opp', id: 'p2' },
+    });
+    // The attack itself used the aggressive slot — settleTurnEnd must clear it.
+    expect(p1.aggressiveActionUsedThisTurn).toBe(true);
+
+    game.tick(game.state.turnDeadline + 1);
+    expect(game.state.phase).toBe(Phase.defense);
+    expect(game.state.consecutive_no_eval_turns).toBe(0);
+    expect(p1.evaluatedThisTurn).toBe(false);
+    expect(p1.aggressiveActionUsedThisTurn).toBe(false);
+
+    // Defense deadline — the eval'd turn stays counted exactly once.
+    game.tick(game.state.turnDeadline + 1);
+    expect(game.state.consecutive_no_eval_turns).toBe(0);
   });
 });
 

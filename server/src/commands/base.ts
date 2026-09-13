@@ -318,6 +318,9 @@ export function moveCardToGraveyard(
   }
   discardCollection(player)?.push(card);
   unbindFactorOnGraveyard(player, cardId);
+  // An armed trap that leaves hand for any reason (spent by eval/defense,
+  // burned by a counter) disarms — the slot id must not outlive the card.
+  if (player.trapCardId === cardId) player.trapCardId = '';
   return card;
 }
 

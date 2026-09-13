@@ -1,6 +1,7 @@
 import {
-  failure, findCard, findCardBySubtype, findBoard, getPlayer, isBoardAlive,
-  moveCardToGraveyard, phaseAllowed, success, type CommandResult, GameCommand,
+  cardNumericValue, failure, findCard, findCardBySubtype, findBoard, getPlayer,
+  isBoardAlive, moveCardToGraveyard, phaseAllowed, success, type CommandResult,
+  GameCommand,
 } from './base.js';
 
 export interface EvalPayload { playerId: string; boardIndex: number; vvcCardId: string; }
@@ -34,10 +35,13 @@ export class EvalCommand extends GameCommand<EvalPayload> {
     }
     const engine = this.context()?.evalEngine;
     if (!engine) return failure('evaluation engine unavailable');
-    const result = engine.evaluate({ expression: board.expression }, boardIndex, vvc.value ?? 0);
+    const result = engine.evaluate({ expression: board.expression }, boardIndex, cardNumericValue(vvc));
     if (result.undefined) {
       board.destroyed = true;
       board.isActive = false;
+      // The eval resolved (it destroyed the board) — it still counts as this
+      // turn's evaluation for stalling purposes, same as a clean eval.
+      player.evaluatedThisTurn = true;
       moveCardToGraveyard(player, vvcCardId);
       moveCardToGraveyard(player, evalCard.id);
       this.context()?.emitGameEvent?.('eval_function', playerId, {

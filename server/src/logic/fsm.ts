@@ -152,7 +152,11 @@ export class PhaseFSM {
       case Phase.play:
       case Phase.defense:
         events.push('auto-pass');
-        events.push(...onNoEvalTurn(this.state));
+        // No-eval accounting is deliberately NOT done here: the FSM cannot
+        // see evaluatedThisTurn, so it cannot choose between onEvalTurn and
+        // onNoEvalTurn — and a defense→resolution auto-pass merely continues
+        // a turn whose play-phase end was already counted. The game layer
+        // (NerdiClashGame.settleTurnEnd) owns that decision, once per turn.
         this.requestTransition(Phase.resolution, now);
         break;
       case Phase.construction:

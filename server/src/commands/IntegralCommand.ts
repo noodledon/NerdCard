@@ -56,9 +56,18 @@ export class IntegralCommand extends GameCommand<IntegralPayload> {
       return failure('board expression is empty');
     }
 
-    const selectedVariable = variable?.trim()
-      || listVariables(parseExpression(board.expression))[0]
-      || 'x';
+    let selectedVariable = variable?.trim();
+    if (!selectedVariable) {
+      try {
+        selectedVariable = listVariables(parseExpression(board.expression))[0] || 'x';
+      } catch {
+        // A board expression math.js can't parse must fizzle like an engine
+        // failure — an unguarded throw escapes the command and rejects the
+        // serialized intent lane with no error surfaced to the client.
+        moveCardToGraveyard(player, cardId);
+        return success({ fizzled: true, reason: 'unparseable board expression' });
+      }
+    }
 
     let engineResult;
     try {

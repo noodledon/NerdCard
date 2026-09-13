@@ -1,6 +1,7 @@
 import {
-  failure, findCard, getPlayer, isFailure, moveCardToGraveyard, phaseAllowed,
-  playerValues, requiredCard, success, type CommandResult, GameCommand,
+  cardNumericValue, failure, findCard, getPlayer, isFailure, moveCardToGraveyard,
+  phaseAllowed, playerValues, requiredCard, success, type CommandResult,
+  GameCommand,
 } from './base.js';
 import { DEFAULT_MODE, MODE_PROFILES } from '../logic/modes.js';
 
@@ -55,7 +56,7 @@ export class ForceEvalCommand extends GameCommand<ForceEvalPayload> {
     moveCardToGraveyard(player, cardId);
     moveCardToGraveyard(player, vvcCardId);
     this.context()?.emitGameEvent?.('force_eval', playerId, { cardId });
-    this.context()?.forceEval?.(state, playerId, vvc.value ?? 0);
+    this.context()?.forceEval?.(state, playerId, cardNumericValue(vvc));
     return success();
   }
 }

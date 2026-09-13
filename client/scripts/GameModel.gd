@@ -38,6 +38,11 @@ var local_session_id: String = ""
 ## local_session_id.
 var local_reconnect_token: String = ""
 
+## The room the held seat belongs to — recorded on 'joined' so a ROOM_FULL
+## answered by a DIFFERENT room's join doesn't wipe this room's credentials
+## (reconnect tokens are room-scoped server-side).
+var local_room: String = ""
+
 ## Selected variable-value card id (chosen in hand before an eval_function
 ## or force_eval intent is sent). Cleared after an intent is sent or the
 ## selection is toggled off. Owned/mutated only by MainGame/CardButton flow,
@@ -54,6 +59,7 @@ func reset() -> void:
 	state = {}
 	local_session_id = ""
 	local_reconnect_token = ""
+	local_room = ""
 	selected_variable_value_card_id = ""
 	selected_factor_card_id = ""
 

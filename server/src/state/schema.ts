@@ -239,7 +239,14 @@ export class PlayerSchema extends Schema {
   @type('boolean')
   offensivePlayedThisTurn: boolean = false;
 
-  /** At most one pending trap may be set for a player. */
+  /**
+   * At most one pending trap may be set for a player. PRIVATE like hand —
+   * the armed card's identity is hidden information; the JSON bridge
+   * additionally swaps it for a `trapSet` boolean in opponent snapshots.
+   */
+  @filter(function (this: PlayerSchema, client: ClientView, _value: string) {
+    return client.sessionId === this.sessionId;
+  })
   @type('string')
   trapCardId: string = '';
 

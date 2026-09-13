@@ -89,6 +89,9 @@ var _room_full_notified: bool = false
 ## seat) — _on_ws_connected sends list_rooms instead of join_room. Cleared
 ## by connect_to_server, so a later Connect on the browsing socket joins.
 var _browse_only: bool = false
+## A browse_rooms dial that became a reclaim join (held seat creds) still
+## owes the lobby its room_list — drained in the 'joined' branch.
+var _want_room_list_after_join: bool = false
 
 
 func _ready() -> void:
@@ -101,6 +104,11 @@ func _ready() -> void:
 
 
 func connect_to_server(url: String, name_hint: String = "", room_hint: String = "", mode_hint: String = "") -> void:
+	## Seated already: ignore — re-joining would ROOM_FULL against our own
+	## still-held seat (the bridge keeps it token-reclaimable) and the error
+	## path would wipe the reclaim credentials, orphaning the seat forever.
+	if _joined:
+		return
 	endpoint = url
 	display_name = name_hint
 	## Blank keeps the bridge default ("nerdiclash") — room names are
@@ -140,7 +148,12 @@ func browse_rooms(url: String) -> void:
 	## earlier browse — so a Refresh mid-dial leaves _browse_only alone.
 	if state == WebSocketPeer.STATE_CONNECTING:
 		return
-	_browse_only = true
+	## Held seat creds outrank the browse: if a reconnect is owed (creds held,
+	## not joined — e.g. a pending auto-retry this dial satisfies), the next
+	## open must send the reclaim join, not list_rooms. The room list still
+	## arrives — _want_room_list_after_join re-sends it after 'joined'.
+	_want_room_list_after_join = GameModel.local_session_id != ""
+	_browse_only = not _want_room_list_after_join
 	var err: int = ws.connect_to(url)
 	if err != OK:
 		emit_signal("error", "ERR_CONNECT", "Failed to start connection to %s" % url)
@@ -179,7 +192,11 @@ func _on_ws_disconnected() -> void:
 	if _room_full_notified:
 		_room_full_notified = false
 		return
-	if not _auto_retried:
+	## Auto-retry only when there's a seat worth reclaiming — after a
+	## voluntary left_room (creds cleared) or a never-joined drop, redialing
+	## would just mint an unplanned fresh seat or burn a retry into a
+	## room that was never ours.
+	if not _auto_retried and GameModel.local_session_id != "":
 		_auto_retried = true
 		emit_signal("error", "ERR_DISCONNECTED", "Connection lost — retrying…")
 		get_tree().create_timer(RETRY_DELAY_SEC).timeout.connect(_retry_connect)
@@ -222,10 +239,18 @@ func _on_ws_message(data: Dictionary) -> void:
 			_joined = true
 			GameModel.local_session_id = new_session_id
 			GameModel.local_reconnect_token = String(data.get("reconnectToken", ""))
+			## The room this seat lives in — ROOM_FULL scoping below keys off
+			## it so a full OTHER room can't wipe these credentials.
+			GameModel.local_room = room_name
 			## `joined.mode` echo confirms the room's mode — on a reclaim
 			## this is the seat's mode, not necessarily what we asked for.
 			confirmed_mode = String(data.get("mode", game_mode))
 			emit_signal("connected", String(data.get("role", "")))
+			## A browse_rooms dial that turned into a reclaim join still owes
+			## the lobby its directory refresh.
+			if _want_room_list_after_join:
+				_want_room_list_after_join = false
+				send_list_rooms()
 		"state_snapshot":
 			GameModel.state = data.get("state", {})
 			emit_signal("state_changed", GameModel.state)
@@ -262,11 +287,14 @@ func _on_ws_message(data: Dictionary) -> void:
 			var message: String = String(data.get("message", ""))
 			if code == "ROOM_FULL":
 				## A reclaim join that still gets ROOM_FULL means the seat
-				## is truly gone (or never ours). Drop the held id + token
-				## so the next Connect is a clean fresh join, and say so
-				## plainly instead of surfacing a generic connect error.
-				GameModel.local_session_id = ""
-				GameModel.local_reconnect_token = ""
+				## is truly gone (or never ours). But tokens are room-scoped:
+				## only drop the creds when the full room IS the seat's room —
+				## a different room answering ROOM_FULL must not orphan a
+				## still-reclaimable seat elsewhere.
+				if room_name == GameModel.local_room or GameModel.local_room == "":
+					GameModel.local_session_id = ""
+					GameModel.local_reconnect_token = ""
+					GameModel.local_room = ""
 				_room_full_notified = true
 				message = "Room full / seat gone — try again once a seat frees up"
 			emit_signal("error", code, message)

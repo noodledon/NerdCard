@@ -57,6 +57,12 @@ export class AttackHpCommand extends GameCommand<AttackHpPayload> {
     if (payload.numberCardId) {
       const numberCard = findCard(player, payload.numberCardId);
       if (!numberCard) return failure(`card ${payload.numberCardId} is not in player's hand`);
+      // Bound factors are number-deck resources only (primes/irrationals).
+      // An Anchor id (vvc-4 → 10) would otherwise become a 10× multiplier,
+      // and a non-number id would silently read as a payload-less factor.
+      if (numberCard.deckType !== 'number' || numberCard.subtype === 'Anchor') {
+        return failure('number factor must be a number card');
+      }
       factor = cardNumericValue(numberCard);
       bindFactor(player, payload.numberCardId, payload.cardId);
     }
@@ -78,6 +84,9 @@ export class AttackHpCommand extends GameCommand<AttackHpPayload> {
     state.pendingTriggerId = `attack_t${state.turnIndex ?? 0}_${payload.cardId}`;
     markAggressiveActionUsed(player);
     moveCardToGraveyard(player, payload.cardId);
+    // The bound factor travels with the spell to the graveyard — a spent
+    // resource, not a permanent in-hand multiplier.
+    if (payload.numberCardId) moveCardToGraveyard(player, payload.numberCardId);
     this.context()?.emitGameEvent?.('play_card', payload.playerId, {
       cardId: payload.cardId,
       targetPlayerId: payload.targetPlayerId,

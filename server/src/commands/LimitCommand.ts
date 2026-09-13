@@ -99,9 +99,17 @@ export class LimitCommand extends GameCommand<LimitPayload> {
       return failure('board expression is empty');
     }
 
-    const selectedVariable = variable?.trim()
-      || listVariables(parseExpression(board.expression))[0]
-      || 'x';
+    let selectedVariable = variable?.trim();
+    if (!selectedVariable) {
+      try {
+        selectedVariable = listVariables(parseExpression(board.expression))[0] || 'x';
+      } catch {
+        // Same unguarded-parse hole as IntegralCommand — fizzle, don't throw
+        // through the serialized intent lane.
+        moveCardToGraveyard(player, cardId);
+        return success({ fizzled: true, reason: 'unparseable board expression' });
+      }
+    }
     const selectedApproach = approach ?? 0;
 
     let engineResult;

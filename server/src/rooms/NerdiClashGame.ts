@@ -146,6 +146,10 @@ export class NerdiClashGame {
       && now >= this.state.turnDeadline
       && this.state.pendingAttackTargetId
     ) {
+      // The attacker's turn ends here, same as requestEndTurn: settle its
+      // bookkeeping BEFORE the window opens (stalling counters, flag resets,
+      // isolation tick) so the later defense deadline can't count it twice.
+      this.settleTurnEnd(this.state.currentTurnPlayerId);
       if (!this.state.pendingTriggerId) {
         this.state.pendingTriggerId = `attack-${this.state.turnIndex}`;
       }
@@ -160,20 +164,13 @@ export class NerdiClashGame {
       // The defender already had (or never earned) a defense window, so any
       // pending attack lands now.
       this.applyPendingAttack();
-      // A 'force-eval' event means a stalling counter tripped inside the FSM.
-      // Settle a possible kill from the landed attack first and skip the
-      // showdown entirely if the game is already decided.
-      if (fsmEvents.includes('force-eval')) {
-        this.runCheckWin();
-        if (!this.state.winner) {
-          this.runStallingForceEval(this.state.currentTurnPlayerId);
-        }
+      // Bookkeeping runs only on the play→resolution auto-pass: a
+      // defense→resolution auto-pass continues a turn whose play-phase end
+      // was already settled (end_turn or the intercept above) — settling
+      // again would double-count the stalling counters and isolation tick.
+      if (previousPhase === Phase.play) {
+        this.settleTurnEnd(this.state.currentTurnPlayerId);
       }
-      // Doc §10.1 shared fix: the turn ended here, so the isolation countdown
-      // must advance exactly as requestEndTurn advances it — previously only
-      // requestEndTurn ticked the timers, which froze every countdown while
-      // turns timed out (a stall exploit in v1, mode-breaking in VI).
-      this.tickIsolationTimers();
       this.phaseController.requestTransition(Phase.draw);
       this.rotateTurnOwner();
     } else if (previousPhase === Phase.resolution && phase === Phase.draw) {
@@ -218,6 +215,34 @@ export class NerdiClashGame {
       const drawTotal = choices.reduce((sum, choice) => sum + choice.count, 0);
       if (drawTotal !== 2) {
         return { ok: false, reason: 'deckChoices must draw exactly 2 cards' };
+      }
+      // Pre-flight availability: DrawCommand consumes pile+graveyard as it
+      // goes, so a batch that can't be fully satisfied must reject BEFORE
+      // the first mutation — otherwise the earlier choice's cards stay in
+      // hand while the phase remains draw, and a retry overdraws the quota.
+      // Aggregate per deck first: duplicate-deck choices ({fcc:1},{fcc:1})
+      // share one pile, so per-choice checks would undercount.
+      const drawingPlayer = this.state.players.get(sessionId);
+      const needed = new Map<string, number>();
+      for (const choice of choices) {
+        needed.set(choice.deck, (needed.get(choice.deck) ?? 0) + choice.count);
+      }
+      for (const [deck, count] of needed) {
+        const pile = deck === 'fcc'
+          ? drawingPlayer?.deckFCC
+          : deck === 'number'
+            ? drawingPlayer?.deckNumber
+            : drawingPlayer?.deckAction;
+        // Mirrors DrawCommand's graveyard accepts-rule: only same-deckType
+        // non-Anchor cards reshuffle into a starved pile.
+        const recyclable = drawingPlayer
+          ? [...drawingPlayer.discardGraveyard].filter(
+            (card) => card?.deckType === deck && card?.subtype !== 'Anchor',
+          ).length
+          : 0;
+        if ((pile?.length ?? 0) + recyclable < count) {
+          return { ok: false, reason: `deck ${deck} cannot supply ${count} card(s)` };
+        }
       }
       for (const choice of choices) {
         const result = this.dispatchCommand({
@@ -388,26 +413,10 @@ export class NerdiClashGame {
       return { ok: true };
     }
 
-    // Advance stalling counters before resetting the flag so we read the true
-    // value for this turn. onEvalTurn resets consecutive_no_eval_turns;
-    // onNoEvalTurn increments both counters and may return force-eval events.
-    if (player.evaluatedThisTurn) {
-      this.phaseController.onEvalTurn();
-    } else {
-      const fsmEvents = this.phaseController.onNoEvalTurn();
-      if (fsmEvents.includes('force-eval')) {
-        // §8.5 anti-stall: the staller's turn ending trips the showdown while
-        // any recorded attack is still pending (it resolves via the defense
-        // window below if the game continues).
-        this.runStallingForceEval(sessionId);
-      }
-    }
-    player.aggressiveActionUsedThisTurn = false;
-    player.offensivePlayedThisTurn = false;
-    player.evaluatedThisTurn = false;
-    player.actionsUsedThisTurn = 0;
-    this.state.forceEvalRequested = false;
-    this.tickIsolationTimers();
+    // All turn-end bookkeeping lives in settleTurnEnd so the manual end_turn,
+    // deadline auto-pass, and defense-window intercept paths share exactly
+    // one implementation (stalling counters, flag resets, isolation tick).
+    this.settleTurnEnd(sessionId);
 
     if (this.state.pendingAttackTargetId) {
       // An attack was recorded this turn — open the defense window instead of
@@ -423,6 +432,43 @@ export class NerdiClashGame {
     }
     this.emitGameEvent('end_turn', sessionId);
     return { ok: true };
+  }
+
+  /**
+   * Turn-end bookkeeping, run exactly once when a player's play phase ends —
+   * by their own end_turn, a quiet deadline auto-pass, or the defense-window
+   * intercept. Reads evaluatedThisTurn BEFORE resetting it (eval turns reset
+   * the consecutive counter; no-eval turns increment both counters and may
+   * trip the §8.5 showdown), clears the per-turn flags, and advances the
+   * isolation countdown. Paths that merely continue a turn whose play-phase
+   * end was already settled — defense→resolution auto-pass, defender pass,
+   * play_defense — must NOT call this or the counters double.
+   */
+  private settleTurnEnd(playerId: string): void {
+    const player = this.state.players.get(playerId);
+    if (player) {
+      if (player.evaluatedThisTurn) {
+        this.phaseController.onEvalTurn();
+      } else {
+        const fsmEvents = this.phaseController.onNoEvalTurn();
+        if (fsmEvents.includes('force-eval')) {
+          // §8.5 anti-stall: settle a possible kill first and skip the
+          // showdown entirely if the game is already decided. Any recorded
+          // attack is still pending — it resolves via the defense window if
+          // the game continues.
+          this.runCheckWin();
+          if (!this.state.winner) {
+            this.runStallingForceEval(playerId);
+          }
+        }
+      }
+      player.aggressiveActionUsedThisTurn = false;
+      player.offensivePlayedThisTurn = false;
+      player.evaluatedThisTurn = false;
+      player.actionsUsedThisTurn = 0;
+    }
+    this.state.forceEvalRequested = false;
+    this.tickIsolationTimers();
   }
 
   // ─── State queries ─────────────────────────────────────────────────────────
@@ -468,6 +514,7 @@ export class NerdiClashGame {
               domain: b.domain,
               isActive: b.isActive,
               isSingular: b.isSingular,
+              compositionDepth: b.compositionDepth,
             })),
             deckFCC: [...player.deckFCC].filter((c): c is NonNullable<typeof c> => c !== undefined).map((c) => ({ id: c.id, name: c.subtype })),
             deckNumber: [...player.deckNumber].filter((c): c is NonNullable<typeof c> => c !== undefined).map((c) => ({ id: c.id, name: c.subtype })),
@@ -508,7 +555,13 @@ export class NerdiClashGame {
           },
         ]),
       ),
-      deckCounts: Object.fromEntries(this.state.deckCounts.entries()),
+      // Live per-player pile sizes — the seeded state.deckCounts map is only
+      // written at seat time, so derive the snapshot counts from the decks.
+      deckCounts: Object.fromEntries([...this.state.players.values()].flatMap((p) => [
+        [`${p.sessionId}_fcc`, p.deckFCC.length],
+        [`${p.sessionId}_number`, p.deckNumber.length],
+        [`${p.sessionId}_action`, p.deckAction.length],
+      ])),
       variable_isolation_timers: Object.fromEntries(this.state.variable_isolation_timers.entries()),
     };
   }
@@ -757,7 +810,10 @@ export class NerdiClashGame {
       const evaluated = evaluate({ expression: board?.expression ?? '' }, 0, vvcValue);
       let lastForceValue = 0;
       if (evaluated.undefined) {
-        if (board) board.isActive = false;
+        // A board already holding '' is a legitimately-evaluated/rebuildable
+        // board (the post-eval state) — the showdown must not re-destroy it
+        // as a failed evaluation and feed a boardWipe on an empty board.
+        if (board && board.expression.trim() !== '') board.isActive = false;
       } else {
         lastForceValue = evaluated.value;
       }

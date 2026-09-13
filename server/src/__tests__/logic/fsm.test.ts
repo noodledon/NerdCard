@@ -247,7 +247,7 @@ describe('tick auto-pass edges', () => {
   });
 
   it.each([Phase.play, Phase.defense] as const)(
-    'auto-passes %s into resolution at the deadline and counts a no-eval turn',
+    'auto-passes %s into resolution at the deadline without touching counters',
     (phase) => {
       const now = 3_000_000;
       const { fsm, state } = fsmIn(phase, now - PLAY_MS);
@@ -258,18 +258,23 @@ describe('tick auto-pass edges', () => {
       expect(fsm.tick(now)).toEqual(['auto-pass']);
       expect(state.phase).toBe(Phase.resolution);
       expect(state.turnDeadline).toBe(0);
-      expect(state.consecutive_no_eval_turns).toBe(3);
-      expect(state.global_no_eval_turns).toBe(10);
+      // Stalling counters moved to NerdiClashGame.settleTurnEnd: the FSM
+      // can't see evaluatedThisTurn, so it must not guess eval vs no-eval —
+      // and a defense auto-pass continues a turn whose play-phase end was
+      // already counted there.
+      expect(state.consecutive_no_eval_turns).toBe(2);
+      expect(state.global_no_eval_turns).toBe(9);
     },
   );
 
-  it('emits force-eval alongside auto-pass when a stalling cap trips', () => {
+  it('does not emit force-eval from tick — the cap is settled game-side', () => {
     const { fsm, state } = fsmIn(Phase.play);
     state.turnDeadline = 500;
     state.consecutive_no_eval_turns = 4;
 
-    expect(fsm.tick(500)).toEqual(['auto-pass', 'force-eval']);
+    expect(fsm.tick(500)).toEqual(['auto-pass']);
     expect(state.phase).toBe(Phase.resolution);
+    expect(state.consecutive_no_eval_turns).toBe(4);
   });
 
   it('ends the game when the construction deadline elapses (AFK safeguard)', () => {

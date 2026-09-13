@@ -21,7 +21,9 @@ export const PlayCardSchema = z.object({
       id: z.string().optional(),
     })
     .default({ kind: 'none' }),
-  numberFactorCardIds: z.array(z.string()).optional(),
+  // Singular bound factor (schema.boundFactor) — only [0] is ever read, so
+  // cap the array rather than silently drop extras.
+  numberFactorCardIds: z.array(z.string()).max(1).optional(),
   // composition plays only: the symbol to substitute inside the outer board
   // (e.g. 'x') and the inner board to compose in. Both optional — the server
   // falls back to the outer board's sole distinct variable / the first other

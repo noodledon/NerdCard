@@ -132,8 +132,13 @@ export class JsonBridgeServer {
   }
 
   start(port: number): void {
+    // Idempotent — a second start() would otherwise stack duplicate
+    // intervals and a second WSS on a new http server, orphaning the first.
+    if (this.wss) return;
     this.httpServer = http.createServer();
-    this.wss = new WebSocketServer({ server: this.httpServer });
+    // 64 KiB ceiling: legit frames are small JSON intents — the ws default
+    // (100 MiB) lets one socket buffer-bomb the process.
+    this.wss = new WebSocketServer({ server: this.httpServer, maxPayload: 64 * 1024 });
 
     this.wss.on('connection', (ws) => {
       this.socketLiveness.set(ws, true);
@@ -223,10 +228,23 @@ export class JsonBridgeServer {
         this.send(ws, { type: 'ack', intent: 'ready_inst' });
         break;
       case 'end_turn': {
-        const result = await this.runSerialized(slot, async (): Promise<CommandResult> => {
-          if (slot.game !== game) return { ok: false, reason: 'game is gone' };
-          return game.requestEndTurn(client.sessionId);
-        });
+        let result: CommandResult;
+        try {
+          result = await this.runSerialized(slot, async (): Promise<CommandResult> => {
+            if (slot.game !== game) return { ok: false, reason: 'game is gone' };
+            // The seat may have changed while this intent waited on the
+            // lane (leave_room, reclaim rebind, socket drop) — the queued
+            // work must not mutate for a seat the socket no longer holds.
+            if (slot.clients.get(client.sessionId)?.ws !== ws) {
+              return { ok: false, reason: 'seat is gone' };
+            }
+            return game.requestEndTurn(client.sessionId);
+          });
+        } catch (err) {
+          console.error('[JsonBridge] end_turn error:', err);
+          this.send(ws, { type: 'error', code: ErrorCode.INTERNAL, message: 'internal error' });
+          return;
+        }
         if (!result.ok) {
           this.send(ws, { type: 'error', code: this.errorCodeFor(result.reason), message: result.reason ?? 'end turn failed' });
         } else {
@@ -248,8 +266,20 @@ export class JsonBridgeServer {
         // Runs on the room's lane so the game swap can't interleave with an
         // in-flight intent on the old game (those self-reject via the
         // slot.game guard).
-        const result = await this.runSerialized(slot, (): CommandResult =>
-          this.voteRematch(slot, client.sessionId));
+        let result: CommandResult;
+        try {
+          result = await this.runSerialized(slot, (): CommandResult => {
+            if (slot.game !== game) return { ok: false, reason: 'game is gone' };
+            if (slot.clients.get(client.sessionId)?.ws !== ws) {
+              return { ok: false, reason: 'seat is gone' };
+            }
+            return this.voteRematch(slot, client.sessionId);
+          });
+        } catch (err) {
+          console.error('[JsonBridge] rematch error:', err);
+          this.send(ws, { type: 'error', code: ErrorCode.INTERNAL, message: 'internal error' });
+          return;
+        }
         if (!result.ok) {
           this.send(ws, { type: 'error', code: this.errorCodeFor(result.reason), message: result.reason ?? 'rematch failed' });
         } else {
@@ -272,10 +302,20 @@ export class JsonBridgeServer {
         }
         const payload: Record<string, unknown> = { ...parsed.message };
         const intentType = parsed.message.type;
-        const result = await this.runSerialized(slot, async (): Promise<CommandResult> => {
-          if (slot.game !== game) return { ok: false, reason: 'game is gone' };
-          return game.dispatchIntent(client.sessionId, intentType, payload);
-        });
+        let result: CommandResult;
+        try {
+          result = await this.runSerialized(slot, async (): Promise<CommandResult> => {
+            if (slot.game !== game) return { ok: false, reason: 'game is gone' };
+            if (slot.clients.get(client.sessionId)?.ws !== ws) {
+              return { ok: false, reason: 'seat is gone' };
+            }
+            return game.dispatchIntent(client.sessionId, intentType, payload);
+          });
+        } catch (err) {
+          console.error('[JsonBridge] intent error:', err);
+          this.send(ws, { type: 'error', code: ErrorCode.INTERNAL, message: 'internal error' });
+          return;
+        }
         if (!result.ok) {
           this.send(ws, {
             type: 'error',
@@ -333,6 +373,18 @@ export class JsonBridgeServer {
   }
 
   private handleJoin(ws: WebSocket, msg: Record<string, unknown>): void {
+    // One seat per socket: a socket that already holds one (in ANY room)
+    // must leave_room before joining again — otherwise a second join could
+    // seat the same socket twice (dual-seat ghost that receives both hands
+    // and can never let the room tear down).
+    if (this.findClientByWs(ws)) {
+      this.send(ws, {
+        type: 'error',
+        code: ErrorCode.ALREADY_JOINED,
+        message: 'socket already seated — leave_room before joining again',
+      });
+      return;
+    }
     const mode = normalizeMode(msg.mode);
     if (mode === null) {
       this.send(ws, {
@@ -346,7 +398,16 @@ export class JsonBridgeServer {
     if (!slot) return;
 
     if (!slot.game) {
-      slot.game = new NerdiClashGame(slot.mode);
+      try {
+        slot.game = new NerdiClashGame(slot.mode);
+      } catch (err) {
+        // A constructor throw must not strand a clientless slot — it would
+        // consume ROOM_CAP forever (no live socket ever triggers teardown).
+        this.slots.delete(slot.name);
+        console.error('[JsonBridge] game init failed:', err);
+        this.send(ws, { type: 'error', code: ErrorCode.INTERNAL, message: 'game init failed' });
+        return;
+      }
       slot.game.setEventListener((ev) => this.broadcastGameEvent(slot, ev));
     }
     const game = slot.game;
@@ -364,12 +425,20 @@ export class JsonBridgeServer {
     const rejoinId = typeof msg.sessionId === 'string' ? msg.sessionId : undefined;
     const rejoinToken = typeof msg.reconnectToken === 'string' ? msg.reconnectToken : undefined;
     const seatToken = rejoinId ? slot.reconnectTokens.get(rejoinId) : undefined;
-    if (rejoinId && seatToken !== undefined && rejoinToken === seatToken && !slot.clients.has(rejoinId)) {
+    if (rejoinId && seatToken !== undefined && rejoinToken === seatToken) {
       const existing = game.getPlayer(rejoinId);
-      if (existing && !existing.isConnected) {
-        game.reconnectPlayer(rejoinId, displayName);
+      if (existing) {
+        // Token match is the seat-ownership proof — reclaim regardless of a
+        // lingering client entry or isConnected flag: a fast reconnect can
+        // arrive before the old socket's close event fires (the heartbeat
+        // sweep is ~10s behind). Rebind FIRST, then close the stale socket —
+        // its 'close' → handleDisconnect then finds no client for that ws,
+        // so it can't unseat the new entry.
+        const prior = slot.clients.get(rejoinId);
         const role: 'p1' | 'p2' = [...game.state.players.keys()][0] === rejoinId ? 'p1' : 'p2';
         slot.clients.set(rejoinId, { ws, sessionId: rejoinId, role, slot });
+        prior?.ws.close();
+        game.reconnectPlayer(rejoinId, displayName);
         this.send(ws, { type: 'joined', sessionId: rejoinId, role, reconnectToken: seatToken, mode: slot.mode });
         this.sendDefenseResumedIfNeeded(ws, slot);
         this.broadcastSnapshots(slot);
@@ -499,7 +568,11 @@ export class JsonBridgeServer {
     slot.game = fresh;
     slot.rematchVotes.clear();
     for (const seat of seats) {
-      fresh.addPlayer(seat.sessionId, seat.displayName);
+      const freshPlayer = fresh.addPlayer(seat.sessionId, seat.displayName);
+      // addPlayer marks every seat connected — a seat with no live socket
+      // must stay reclaimable, or the absent player's own rejoin reads the
+      // ghost seat as occupied and falls through to ROOM_FULL forever.
+      if (!slot.clients.has(seat.sessionId)) freshPlayer.isConnected = false;
     }
     fresh.startGame();
     // Same immediacy as a filled room on join: push the construction

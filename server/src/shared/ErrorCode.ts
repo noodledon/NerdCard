@@ -12,6 +12,7 @@ export enum ErrorCode {
   ROOM_FULL = 'ROOM_FULL',
   SERVER_FULL = 'SERVER_FULL',
   MODE_MISMATCH = 'MODE_MISMATCH',
+  ALREADY_JOINED = 'ALREADY_JOINED',
   INTERNAL = 'INTERNAL',
 }
 
@@ -46,6 +47,7 @@ export function errorCodeForReason(reason: string | undefined): ErrorCode {
     reason?.includes('unavailable')
     || reason?.includes('state missing')
     || reason?.includes('game is gone')
+    || reason?.includes('seat is gone')
     || reason?.includes('illegal transition')
     || reason?.includes('unknown theorem')
     || reason?.includes('unsupported transform')

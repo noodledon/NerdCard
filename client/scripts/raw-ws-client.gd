@@ -53,6 +53,10 @@ func _process(_delta: float) -> void:
 	if state == WebSocketPeer.STATE_OPEN:
 		if not _connected:
 			_connected = true
+			# A completed handshake clears the dial flag — otherwise the next
+			# drop's STATE_CLOSED hits the elif below and emits a phantom
+			# "connection_failed" one frame after 'disconnected'.
+			_dial_attempted = false
 			print("[RawWsClient] Connected!")
 			emit_signal("connected")
 		_on_packet()

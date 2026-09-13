@@ -378,6 +378,49 @@ describe('JsonBridgeServer', () => {
     expect(msg.sessionId).toBe(sid1);
   });
 
+  it('rejects a second join on an already-seated socket (ALREADY_JOINED)', async () => {
+    const client = await connect();
+    const first = await joinRoom(client);
+    expect(first.type).toBe('joined');
+
+    // One seat per socket — a repeat join on the same socket must not mint
+    // a dual-seat ghost (both private hands to one socket, room can never
+    // tear down). It must leave_room first.
+    const second = await joinRoom(client);
+    expect(second.type).toBe('error');
+    expect(second.code).toBe(ErrorCode.ALREADY_JOINED);
+  });
+
+  it('reclaims a seat while its old socket is still live (fast reconnect)', async () => {
+    const { c1, sid1, tok1 } = await joinTwoPlayers();
+    await c1.waitFor(snapshotPhase('construction'), 3000, 'construction snapshot');
+
+    const internals = bridge as unknown as {
+      clients: Map<string, { ws: WebSocket }>;
+    };
+    const staleWs = internals.clients.get(sid1)?.ws;
+    expect(staleWs?.readyState).toBe(WebSocket.OPEN);
+
+    // A fast reconnect can arrive before the old socket's close event fires
+    // (heartbeat is ~10s behind) — the token is the ownership proof, so the
+    // seat rebinds and the stale socket is closed rather than ROOM_FULL.
+    const rejoined = await connect();
+    const j = await joinRoom(rejoined, { sessionId: sid1, reconnectToken: tok1 });
+    expect(j.type).toBe('joined');
+    expect(j.sessionId).toBe(sid1);
+    expect(internals.clients.get(sid1)?.ws).not.toBe(staleWs);
+
+    // The superseded socket is closed server-side so its later 'close'
+    // can't unseat the new entry.
+    for (let i = 0; i < 40 && staleWs?.readyState !== WebSocket.CLOSED; i += 1) {
+      await sleep(25);
+    }
+    expect(staleWs?.readyState).toBe(WebSocket.CLOSED);
+
+    const snap = await rejoined.waitForNext(isSnapshot, 3000, 'state_snapshot');
+    expect(snapshotState(snap).players?.[sid1]?.isConnected).toBe(true);
+  });
+
   it('keeps live sockets and terminates dead ones in the heartbeat sweep', async () => {
     const { c1, c2, sid1, tok1 } = await joinTwoPlayers();
     await c1.waitFor(snapshotPhase('construction'), 3000, 'construction snapshot');
