@@ -27,6 +27,8 @@ Think of it as: **Yu-Gi-Oh meets calculus** — cards are math operations, your 
 
 **Anti-cheat principle**: The client is *blind*. It never computes rules. It only shows what the server tells it and sends player intents like "play card #3" or "evaluate." The server validates everything.
 
+**Transport note**: The Godot client never speaks Colyseus's native protocol — it talks to the server's JSON text-frame bridge (`server/src/json-bridge.ts`, `ws://localhost:2568`). The Colyseus room (`:2567`) remains only as the app host and a single-room (`nerdiclash`) legacy/dev transport; multi-room, rematch, `list_rooms`/`leave_room`, and all three game modes (§21) are JSON-bridge-only.
+
 ---
 
 ## 3. Player Resources (What You Start With)

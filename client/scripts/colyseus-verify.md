@@ -2,6 +2,11 @@
 
 ## Risk Rating: `SDK-BROKEN-FALLBACK`
 
+> **Update (wave-14 T3):** the SDK never came back, and the JSON bridge
+> was formalized as the client's only transport. The inert
+> `ColyseusConnection.gd` stub kept below was deleted; this report is
+> retained as the branch-decision record.
+
 ---
 
 ## Godot Version Tested
@@ -61,7 +66,7 @@ Exit code 0, no parse errors. Uses only built-in Godot 4 classes (`WebSocketPeer
 
 | File | Purpose | Status |
 |------|---------|--------|
-| `scripts/ColyseusConnection.gd` | SDK wrapper (kept for future SDK restoration) | Fails to parse — SDK unavailable |
+| `scripts/ColyseusConnection.gd` | SDK wrapper stub | Fails to parse — SDK unavailable; deleted wave-14 T3 |
 | `scripts/raw-ws-client.gd` | Raw WebSocket fallback (ACTIVE) | Parses cleanly |
 | `addons/` | SDK addon directory (empty — SDK not available) | N/A |
 
@@ -69,5 +74,5 @@ Exit code 0, no parse errors. Uses only built-in Godot 4 classes (`WebSocketPeer
 
 ## Notes
 
-- `ColyseusConnection.gd` is **NOT deleted** even though it fails. It serves as a contract reference and can be revived if/when the SDK becomes available again.
+- `ColyseusConnection.gd` was kept at the time of this report as a contract reference for a possible SDK revival. It was deleted in wave-14 T3 when the JSON bridge was formalized as the only client transport.
 - No modifications were made to `project.godot`, `game.gd`, or any other existing files.
