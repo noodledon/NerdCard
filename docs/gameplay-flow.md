@@ -201,7 +201,7 @@ Evaluation is how you gain HP. Here's the exact flow:
 ### Undefined / Infinite Evaluation
 - If evaluation yields `Infinity`, `NaN`, or throws (e.g., division by zero):
   - The affected board is **destroyed**
-  - If this was the player's only surviving function → **immediate loss**
+  - If this destroyed the player's **last live board** → **immediate loss**, `winReason: 'undefined_integral_loss'` — checked wherever an undefined eval lands (`eval_function` and forced-eval resolution alike), ahead of the generic board-wipe ruling. Profile-gated (§21): armed in NerdiClash and Classic Clash; **off** in Variable Isolation, where isolation is the only win path so an eval-mishap board is merely dead, not fatal.
 
 ---
 
@@ -264,11 +264,11 @@ A player wins by achieving ANY ONE of:
 | # | Condition | How It Triggers |
 |---|-----------|-----------------|
 | 1 | **Reduce opponent HP to 0** | Attack cards or post-force-eval HP=0 (HP floors at 0 — an eval that lands negative clamps, it never produces negative HP) |
-| 2 | **Isolate opponent's variables** | Reduce opponent's function to a single variable like `{x}`. They have **3 turns** to rebuild a valid function. If they fail → they lose. Tracked via `variable_isolation_timers[sessionId]`. |
+| 2 | **Isolate opponent's variables** | Reduce opponent's main board to **≤1 distinct variable** (`{x}` — a constant-only board counts too). They have **3 turns** to rebuild a valid function. If they fail → they lose. Tracked via `variable_isolation_timers[sessionId]`. |
 | 3 | **Force Evaluation domination** | Initiator's value > 2× every opponent's (see §10). No HP transfers on a domination win — the game simply ends. |
 | 4 | **Linear Algebra destruction** | Reduce opponent's vector space dimension to 0, OR force their matrix board to become singular (determinant = 0) |
 
-**Game over without a winner is also possible**: if the construction deadline elapses with no valid submissions, the game ends `abandoned` with `winnerId: null`. If exactly one player submitted, that player wins `abandoned`.
+**Game over without a winner is also possible**: if the construction deadline elapses with no valid submissions, the game ends `abandoned` with `winnerId: null`. If exactly one player submitted, that player wins `abandoned`. Under Variable Isolation, a match that reaches the 20-turn global stalling cap likewise ends without a winner — `winReason: 'stalled'` (§12).
 
 **Rematch**: once the game is over, either player can offer a rematch — the game-over overlay's **Rematch** button sends a `rematch` intent. The first vote disables the button ("Waiting for opponent…") and shows the opponent "Opponent wants a rematch."; when both players have voted, the room resets to a fresh `construction` phase with the same seats (same `sessionId`s, boards wiped, opening hands reseeded). Any intent other than `rematch` sent after game over is rejected with `GAME_OVER`.
 
@@ -287,6 +287,7 @@ The rulebook §8.5 has TWO independent anti-stall rules. The plan uses TWO count
 - **NEVER resets** — counts from game start
 - Caps at 20
 - **Triggers forced evaluation when it reaches 20**
+- At the cap the mode profile's `stallingResolution` takes over (wave-14): Variable Isolation declares the match a **draw** once — `game_over` with `winnerId: null`, `winReason: 'stalled'` — because its per-trip soft_wipe is non-terminal and domination is gated off, so re-firing it every turn would leave an unterminable limbo. NerdiClash/Classic Clash keep the standard showdown at the cap (already decisive: failed nominations keep costing boards, and hp0/domination/board-wipe still end the match).
 
 ### Why Two Counters?
 - The old single-counter design reset on eval. With resets, it could never accumulate to 20 (because it would trigger at 5 first). So the 20-turn global rule was unreachable — a bug.
@@ -527,8 +528,9 @@ snapshot root (`state.mode`), and in `list_rooms` rows; a rematch keeps it.
 | `derivative` / `limit` | own boards only | may strike `opp_board` — counts as the turn's aggressive action; `variable` picks the surviving variable | own boards only |
 | Destroyed boards | permanent | rebuildable via `build_function` | permanent |
 | Showdown card | domination gamble | **rejected** (`INVALID_TARGET` — "no effect in Variable Isolation") | normal |
-| §8.5 auto-eval | standard showdown | **soft_wipe** — every active board evaluates at vvc=1, then `expression=''`; boards stay active, no HP movement | standard |
-| Isolation kill predicate | main board exactly 1 var | **≤1 var** — a constant-only board counts as isolated | never — timers never start |
+| §8.5 auto-eval | standard showdown | **soft_wipe** — every active board evaluates at vvc=1, then `expression=''`; boards stay active, no HP movement; at the global cap (20) the match resolves once as a draw (`'stalled'`) | standard |
+| §10.1 last-board undefined-eval loss | **armed** — `'undefined_integral_loss'` | **off** — the board still dies, but cannot end the game | **armed** |
+| Isolation kill predicate | **≤1 var** — a constant-only board counts as isolated (wave-14 §10.3: was exactly-1, which let constants stall the win) | **≤1 var** | never — timers never start |
 
 **Variable Isolation.** "Win only by isolating opponent's variables." HP
 still moves (eval grants it, attacks drain it) but hp0 is not a loss. The
