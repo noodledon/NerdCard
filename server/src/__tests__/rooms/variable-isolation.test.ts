@@ -454,3 +454,125 @@ describe('variable isolation rules (wave-13 M4)', () => {
     expect(game.state.phase).toBe(Phase.gameOver);
   });
 });
+
+/**
+ * Wave-14 T2 — VI global-stalling limbo (report.md OQ-8): past
+ * global_no_eval_turns = 20 the every-turn soft_wipe left a VI match with no
+ * remaining win path. The profile's `stallingResolution` now governs the
+ * global-cap branch: VI declares the match a stalled draw once, while v1
+ * modes keep their per-trip §8.5 behavior unchanged.
+ */
+describe('VI global-stalling limbo resolution (wave-14 T2)', () => {
+  it('ends the VI match in a stalled draw the turn global_no_eval_turns hits 20', async () => {
+    const game = await gameInPlay('variable_isolation', 'x + y', 'x * y');
+    const events = collectEvents(game);
+    game.phaseController.fsm.state.global_no_eval_turns = 19;
+
+    expect(game.requestEndTurn('p1').ok).toBe(true);
+
+    // The stalling trigger still fires, but resolves the match — it does
+    // not run another soft_wipe.
+    expect(events).toContainEqual(expect.objectContaining({
+      event: 'force_eval',
+      actorId: 'p1',
+      details: expect.objectContaining({ trigger: 'stalling', counter: 'global', resolution: 'draw' }),
+    }));
+    expect(game.state.phase).toBe(Phase.gameOver);
+    expect(game.state.winner).toBe('');
+    expect(game.state.winReason).toBe('stalled');
+    expect(events).toContainEqual(expect.objectContaining({
+      event: 'game_over',
+      details: expect.objectContaining({ winner: null, winReason: 'stalled' }),
+    }));
+    // Boards keep their expressions — the draw replaces the wipe.
+    expect(firstBoard(game, 'p1').expression).toBe('x + y');
+    expect(firstBoard(game, 'p2').expression).toBe('x * y');
+    // And the room is truly over: every further intent refuses — no limbo.
+    const stray = await dispatch(game, 'p2', 'end_turn', {});
+    expect(stray).toEqual({ ok: false, reason: 'game is over' });
+  });
+
+  it('fires the draw exactly once when consecutive and global trip on the same turn', async () => {
+    // consecutive hitting 5 and global hitting 20 on the same end_turn emits
+    // one trigger — the global-cap resolution wins over the per-trip wipe.
+    const game = await gameInPlay('variable_isolation', 'x + y', 'x * y');
+    const events = collectEvents(game);
+    game.phaseController.fsm.state.consecutive_no_eval_turns = 4;
+    game.phaseController.fsm.state.global_no_eval_turns = 19;
+
+    expect(game.requestEndTurn('p1').ok).toBe(true);
+
+    expect(events.filter((event) => event.event === 'game_over')).toHaveLength(1);
+    expect(events.filter((event) => event.event === 'force_eval')).toHaveLength(1);
+    expect(game.state.phase).toBe(Phase.gameOver);
+    expect(game.state.winReason).toBe('stalled');
+    expect(firstBoard(game, 'p1').expression).toBe('x + y');
+  });
+
+  it('keeps the per-trip soft_wipe on consecutive trips below the global cap', async () => {
+    const game = await gameInPlay('variable_isolation', 'x + y', 'x * y');
+    game.phaseController.fsm.state.consecutive_no_eval_turns = 4;
+    game.phaseController.fsm.state.global_no_eval_turns = 18; // lands at 19 — under the cap
+
+    expect(game.requestEndTurn('p1').ok).toBe(true);
+
+    // Normal VI §8.5: every active board wiped, game continues.
+    expect(firstBoard(game, 'p1').expression).toBe('');
+    expect(firstBoard(game, 'p2').expression).toBe('');
+    expect(game.state.phase).toBe(Phase.draw);
+    expect(game.state.winner).toBe('');
+    expect(game.state.global_no_eval_turns).toBe(19);
+  });
+
+  it('v1 regression: past the global cap the standard showdown still fires every turn', async () => {
+    // 'x^3' vs 'x' both evaluate to 1 at vvc=1 — a tie, so each stalling
+    // showdown is a failed nomination (board destroyed + hp halved).
+    const game = await gameInPlay('nerdiclash', 'x^3', 'x');
+    const p1 = requirePlayer(game, 'p1');
+    const p2 = requirePlayer(game, 'p2');
+    p1.hp10 = 100;
+    p2.hp10 = 100;
+    // A spare live board keeps p1 in the game through the first showdown.
+    const spare = new FunctionBoardSchema();
+    spare.boardId = 'p1_board_extra';
+    spare.ownerSessionId = 'p1';
+    spare.expression = 'x + 1';
+    spare.domain = 'poly';
+    spare.isActive = true;
+    p1.boards.push(spare);
+    p1.boardCount = p1.boards.length;
+    const events = collectEvents(game);
+    game.phaseController.fsm.state.global_no_eval_turns = 19;
+
+    expect(game.requestEndTurn('p1').ok).toBe(true);
+
+    // Unchanged v1: the per-turn showdown nominates the just-ended player.
+    expect(events).toContainEqual(expect.objectContaining({
+      event: 'force_eval',
+      actorId: 'p1',
+      details: expect.objectContaining({ trigger: 'stalling', counter: 'global' }),
+    }));
+    expect(firstBoard(game, 'p1').isActive).toBe(false);
+    expect(p1.hp10).toBe(50);
+    // No soft_wipe in v1 — the opponent's board keeps its expression.
+    expect(firstBoard(game, 'p2').expression).toBe('x');
+    expect(game.state.phase).toBe(Phase.draw);
+    expect(game.state.winner).toBe('');
+
+    // It fires AGAIN on the next no-eval turn — the cap keeps tripping every
+    // turn until the showdowns themselves end the game (p2's failed
+    // nomination destroys their only board → board-wipe win for p1).
+    await passTurn(game, 'p2');
+
+    expect(events).toContainEqual(expect.objectContaining({
+      event: 'force_eval',
+      actorId: 'p2',
+      details: expect.objectContaining({ trigger: 'stalling' }),
+    }));
+    expect(firstBoard(game, 'p2').isActive).toBe(false);
+    expect(p2.hp10).toBe(50);
+    expect(game.state.winner).toBe('p1');
+    expect(game.state.winReason).toBe('singular_board');
+    expect(game.state.phase).toBe(Phase.gameOver);
+  });
+});

@@ -1,6 +1,6 @@
 import { GameRoomState, PlayerSchema, FunctionBoardSchema, addToHand, catalogCardToSchema, shuffleArraySchema } from '../state/schema.js';
 import { catalogEffectParams, loadCatalog } from '../data/load-catalog.js';
-import { Phase } from '../logic/fsm.js';
+import { Phase, STALLING_CONSECUTIVE_LIMIT, STALLING_GLOBAL_LIMIT } from '../logic/fsm.js';
 import type { BaseDomain } from '../shared/types.js';
 import { PhaseController } from './phaseController.js';
 import { CommandDispatcher, type CommandIntent } from '../commands/CommandDispatcher.js';
@@ -749,7 +749,10 @@ export class NerdiClashGame {
   }
 
   private runCheckWin(): void {
-    if (this.state.winner) return;
+    // gameOver is terminal for win adjudication too — a stalled draw leaves
+    // winner unset, so without the phase check a same-tick isolation timer
+    // could still award a win (and a second game_over) after the draw.
+    if (this.state.winner || this.state.phase === Phase.gameOver) return;
     const result = checkWin({
       players: [...this.state.players.values()].map((player) => ({
         id: player.sessionId,
@@ -900,9 +903,26 @@ export class NerdiClashGame {
    *   global_no_eval_turns never resets (locked constraint).
    */
   private runStallingForceEval(nominatorId: string): void {
-    const counter = this.state.consecutive_no_eval_turns >= 5 ? 'consecutive' : 'global';
-    this.emitGameEvent('force_eval', nominatorId, { trigger: 'stalling', counter });
-    if (this.profile.stallingEval === 'soft_wipe') {
+    const counter = this.state.consecutive_no_eval_turns >= STALLING_CONSECUTIVE_LIMIT ? 'consecutive' : 'global';
+    // Once the never-resetting global counter sits at its cap a non-terminal
+    // answer would fire every turn forever — the profile's endgame resolution
+    // takes over there (wave-14 T2 / OQ-8: VI's every-turn soft_wipe left no
+    // win path). 'soft_wipe' means "no special resolution — keep the per-trip
+    // stallingEval", which preserves v1 behavior for both v1 modes.
+    const resolution = this.state.global_no_eval_turns >= STALLING_GLOBAL_LIMIT
+      ? this.profile.stallingResolution
+      : 'soft_wipe';
+    this.emitGameEvent('force_eval', nominatorId, resolution === 'soft_wipe'
+      ? { trigger: 'stalling', counter }
+      : { trigger: 'stalling', counter, resolution });
+    if (resolution === 'draw') {
+      this.declareStalledDraw();
+      return;
+    }
+    const softWipe = resolution === 'soft_wipe' && this.profile.stallingEval === 'soft_wipe';
+    if (!softWipe) {
+      this.runForceEval(nominatorId, 1);
+    } else {
       // VI §3.3/OQ-11: the standard showdown would destroy the staller's main
       // board — with boardWipe off that leaves them un-isolatable forever,
       // so the anti-stall trigger instead evaluates every active board at
@@ -916,10 +936,22 @@ export class NerdiClashGame {
           board.expression = '';
         }
       }
-    } else {
-      this.runForceEval(nominatorId, 1);
     }
     this.phaseController.onEvalTurn();
+  }
+
+  /**
+   * §8.5 endgame for a 'draw' stallingResolution: the never-resetting global
+   * cap means the players could not produce an eval in twenty turns, so the
+   * match is declared a draw — no winner, winReason 'stalled'. Mirrors
+   * declareWinner's once-only game_over contract minus the winner to name;
+   * the client renders an empty winner as "Draw".
+   */
+  private declareStalledDraw(): void {
+    if (this.state.winner || this.state.phase === Phase.gameOver) return;
+    this.state.winReason = 'stalled';
+    this.phaseController.requestTransition(Phase.gameOver);
+    this.emitGameEvent('game_over', '', { winner: null, loser: '', winReason: 'stalled' });
   }
 
   /**
