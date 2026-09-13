@@ -1901,4 +1901,247 @@ describe('JsonBridgeServer', () => {
       expect(modeOf(await turnClient.waitForNext(isSnapshot, 3000, 'mode snapshot'))).toBe('classic_clash');
     });
   });
+
+  /**
+   * Wave-14 T1 — rulebook fidelity (docs/game-modes.md §10.4 latent issues).
+   * §10.1's `undefined_integral_loss` winReason is now emitted when a
+   * player's own eval lands undefined/infinite AND destroys their last live
+   * board ("integral to survival" — multi-board games keep playing), armed
+   * on nerdiclash + classic_clash and gated off on Variable Isolation where
+   * isolation is the only win path (§3/OQ-12). The §10.3 fix aligns the v1
+   * isolation kill with the countdown's ≤1-var semantics so a constant-only
+   * main board can no longer stall the win forever.
+   */
+  describe('rulebook fidelity (wave-14 T1)', () => {
+    const gameEvent = (event: string): MessagePred =>
+      (msg) => msg.type === 'game_event' && msg.event === event;
+    const snapshotTurn = (phase: string, playerId: string): MessagePred =>
+      (msg) => isSnapshot(msg)
+        && snapshotState(msg).phase === phase
+        && snapshotState(msg).currentTurnPlayerId === playerId;
+
+    function liveGame(): NerdiClashGame {
+      const game = (bridge as unknown as { game?: NerdiClashGame }).game;
+      if (!game) throw new Error('default room has no live game');
+      return game;
+    }
+
+    /** Move a catalog card out of the player's decks into their hand. */
+    function seedHand(game: NerdiClashGame, sessionId: string, cardId: string): void {
+      const player = game.getPlayer(sessionId);
+      if (!player) throw new Error(`missing player ${sessionId}`);
+      if ([...player.hand].some((card) => card?.id === cardId)) return;
+      for (const pile of [player.deckFCC, player.deckNumber, player.deckAction]) {
+        const index = [...pile].findIndex((card) => card?.id === cardId);
+        if (index >= 0) {
+          const card = pile.splice(index, 1)[0];
+          if (card) addToHand(player, card);
+          return;
+        }
+      }
+      throw new Error(`card ${cardId} not in ${sessionId}'s decks`);
+    }
+
+    /** A second live board so a destroyed main board is not the last one. */
+    function addLiveBoard(game: NerdiClashGame, sessionId: string, expression: string): void {
+      const player = game.getPlayer(sessionId);
+      if (!player) throw new Error(`missing player ${sessionId}`);
+      const board = new FunctionBoardSchema();
+      board.boardId = `${sessionId}_board_extra`;
+      board.ownerSessionId = sessionId;
+      board.expression = expression;
+      board.domain = 'poly';
+      board.isActive = true;
+      player.boards.push(board);
+      player.boardCount = player.boards.length;
+    }
+
+    /** Join a pair into the default room under Variable Isolation. */
+    async function joinVariableIsolation(): Promise<{
+      c1: BridgeClient; c2: BridgeClient; sid1: string; sid2: string;
+    }> {
+      const c1 = await connect();
+      const j1 = await joinRoom(c1, { mode: 'variable_isolation' });
+      expect(j1.type).toBe('joined');
+      expect(j1.mode).toBe('variable_isolation');
+      const c2 = await connect();
+      const j2 = await joinRoom(c2, { mode: 'variable_isolation' });
+      expect(j2.type).toBe('joined');
+      expect(j2.mode).toBe('variable_isolation');
+      return { c1, c2, sid1: String(j1.sessionId), sid2: String(j2.sessionId) };
+    }
+
+    /**
+     * Both players submit their construction builds, then the turn owner
+     * draws into play. `exprTurn` lands on whoever holds turn 1.
+     */
+    async function driveToPlay(
+      c1: BridgeClient, c2: BridgeClient, sid1: string, sid2: string,
+      exprTurn: string, exprOff: string,
+    ): Promise<{ turnClient: BridgeClient; offClient: BridgeClient; turnId: string; offId: string }> {
+      const conSnap = await c1.waitFor(snapshotPhase('construction'), 3000, 'construction snapshot');
+      const conState = snapshotState(conSnap);
+      const turnId = String(conState.currentTurnPlayerId);
+      const players = conState.players ?? {};
+      for (const [client, sid] of [[c1, sid1], [c2, sid2]] as const) {
+        const boardId = players[sid]?.boards?.[0]?.boardId;
+        expect(boardId).toBeTruthy();
+        client.send({ type: 'build_function', boardId, expression: sid === turnId ? exprTurn : exprOff });
+      }
+      for (const client of [c1, c2]) {
+        const built = await client.waitFor(isResponse, 3000, 'build_function response');
+        expect(built).toMatchObject({ type: 'ack', intent: 'build_function' });
+      }
+
+      const turnClient = turnId === sid1 ? c1 : c2;
+      const offClient = turnId === sid1 ? c2 : c1;
+      const offId = turnId === sid1 ? sid2 : sid1;
+      await turnClient.waitFor(snapshotTurn('draw', turnId), 3000, 'draw snapshot');
+      turnClient.send({ type: 'draw_cards', deckChoices: [{ deck: 'fcc', count: 2 }] });
+      const draw = await turnClient.waitFor(isResponse, 3000, 'draw_cards response');
+      expect(draw).toMatchObject({ type: 'ack', intent: 'draw_cards' });
+      await turnClient.waitFor(snapshotTurn('play', turnId), 3000, 'play snapshot');
+      return { turnClient, offClient, turnId, offId };
+    }
+
+    async function endTurn(client: BridgeClient): Promise<void> {
+      client.send({ type: 'end_turn' });
+      const resp = await client.waitFor(isResponse, 3000, 'end_turn response');
+      expect(resp).toMatchObject({ type: 'ack', intent: 'end_turn' });
+    }
+
+    /** Point the player's main board at an expression that evals undefined at vvc-1 (=2). */
+    function armUndefinedBoard(game: NerdiClashGame, sessionId: string, expression = '1/(x-2)'): string {
+      const board = game.getPlayer(sessionId)?.boards[0];
+      if (!board) throw new Error(`no board for ${sessionId}`);
+      board.expression = expression;
+      return board.boardId;
+    }
+
+    it('declares undefined_integral_loss when a player\'s own eval goes undefined on their last board', async () => {
+      const { c1, c2, sid1, sid2 } = await joinTwoPlayers();
+      const { turnClient, offClient, turnId, offId } = await driveToPlay(c1, c2, sid1, sid2, 'x+y', 'x*y');
+      const game = liveGame();
+      seedHand(game, turnId, 'act-eval-001');
+      // '1/(x-2)' at vvc-1 (=2) → 1/0 → Infinity → undefined (§10.1). The
+      // player's only board is integral to survival → immediate loss.
+      const boardId = armUndefinedBoard(game, turnId);
+
+      turnClient.send({ type: 'eval_function', boardId, variableValueCardId: 'vvc-1' });
+      const ack = await turnClient.waitFor(isResponse, 3000, 'eval_function response');
+      expect(ack).toMatchObject({ type: 'ack', intent: 'eval_function' });
+
+      const event = await turnClient.waitFor(gameEvent('eval_function'), 3000, 'eval_function event');
+      expect(event.actorId).toBe(turnId);
+      expect(event.details).toMatchObject({ vvcCardId: 'vvc-1', boardDestroyed: true });
+
+      for (const watcher of [turnClient, offClient]) {
+        const over = await watcher.waitFor(gameEvent('game_over'), 3000, 'game_over event');
+        expect(over.details).toMatchObject({
+          winner: offId,
+          loser: turnId,
+          winReason: 'undefined_integral_loss',
+        });
+        const frame = await watcher.waitFor(ofType('game_over'), 3000, 'game_over frame');
+        expect(frame).toMatchObject({ winnerId: offId, winReason: 'undefined_integral_loss' });
+      }
+
+      const over = snapshotState(await turnClient.waitForNext(isSnapshot, 3000, 'gameOver snapshot'));
+      expect(over.phase).toBe('gameOver');
+      expect(over.winner).toBe(offId);
+      expect(over.winReason).toBe('undefined_integral_loss');
+    });
+
+    it('keeps the game alive when an undefined eval leaves other boards live', async () => {
+      const { c1, c2, sid1, sid2 } = await joinTwoPlayers();
+      const { turnClient, offClient, turnId, offId } = await driveToPlay(c1, c2, sid1, sid2, 'x+y', 'x*y');
+      const game = liveGame();
+      seedHand(game, turnId, 'act-eval-001');
+      // Same undefined eval, but a second live board keeps the player in the
+      // game — the loss is only "integral to survival" on the LAST board.
+      addLiveBoard(game, turnId, 'x+1');
+      const boardId = armUndefinedBoard(game, turnId);
+
+      turnClient.send({ type: 'eval_function', boardId, variableValueCardId: 'vvc-1' });
+      const ack = await turnClient.waitFor(isResponse, 3000, 'eval_function response');
+      expect(ack).toMatchObject({ type: 'ack', intent: 'eval_function' });
+
+      const after = snapshotState(await turnClient.waitForNext(isSnapshot, 3000, 'post-eval snapshot'));
+      expect(after.phase).toBe('play');
+      expect(after.winner).toBeFalsy();
+      const mine = after.players?.[turnId];
+      expect(mine?.boards?.[0]?.isActive).toBe(false);
+      expect(mine?.boards?.[1]?.isActive).toBe(true);
+      for (const watcher of [turnClient, offClient]) {
+        expect(watcher.drain(gameEvent('game_over'))).toEqual([]);
+        expect(watcher.drain(ofType('game_over'))).toEqual([]);
+      }
+
+      await endTurn(turnClient);
+      const next = snapshotState(await offClient.waitForNext(isSnapshot, 3000, 'post-turn snapshot'));
+      expect(next.phase).toBe('draw');
+      expect(next.currentTurnPlayerId).toBe(offId);
+      expect(next.winner).toBeFalsy();
+    });
+
+    it('does not end a Variable Isolation game on an undefined eval — the loss path is gated off (OQ-12)', async () => {
+      const { c1, c2, sid1, sid2 } = await joinVariableIsolation();
+      // VI construction requires ≥2 distinct vars (OQ-6).
+      const { turnClient, offClient, turnId, offId } = await driveToPlay(c1, c2, sid1, sid2, 'x + y', 'x * y');
+      const game = liveGame();
+      seedHand(game, turnId, 'act-eval-001');
+      // Same last-board undefined eval that ends a nerdiclash game — in VI
+      // the board still dies but the game CANNOT end on it (OQ-12).
+      const boardId = armUndefinedBoard(game, turnId, '1/(x-2) + y');
+
+      turnClient.send({ type: 'eval_function', boardId, variableValueCardId: 'vvc-1' });
+      const ack = await turnClient.waitFor(isResponse, 3000, 'eval_function response');
+      expect(ack).toMatchObject({ type: 'ack', intent: 'eval_function' });
+
+      const event = await turnClient.waitFor(gameEvent('eval_function'), 3000, 'eval_function event');
+      expect(event.details).toMatchObject({ boardDestroyed: true });
+
+      const after = snapshotState(await turnClient.waitForNext(isSnapshot, 3000, 'post-eval snapshot'));
+      expect(after.phase).toBe('play');
+      expect(after.winner).toBeFalsy();
+      expect(after.players?.[turnId]?.boards?.[0]?.isActive).toBe(false);
+      for (const watcher of [turnClient, offClient]) {
+        expect(watcher.drain(gameEvent('game_over'))).toEqual([]);
+        expect(watcher.drain(ofType('game_over'))).toEqual([]);
+      }
+
+      await endTurn(turnClient);
+      const next = snapshotState(await offClient.waitForNext(isSnapshot, 3000, 'post-turn snapshot'));
+      expect(next.phase).toBe('draw');
+      expect(next.currentTurnPlayerId).toBe(offId);
+      expect(next.winner).toBeFalsy();
+    });
+
+    it('kills a constant-only main board at timer 0 on nerdiclash — the §10.3 ≤1 alignment', async () => {
+      const { c1, c2, sid1, sid2 } = await joinTwoPlayers();
+      const { turnClient, offClient, turnId, offId } = await driveToPlay(c1, c2, sid1, sid2, 'x+y', 'x+y');
+
+      // Adversarial state: the defender's main board is reduced to a constant
+      // (0 distinct vars — MORE isolated than one variable) with an expired
+      // timer. Pre-fidelity this stalled forever: the countdown ran at ≤1
+      // but the v1 kill demanded exactly-1.
+      const game = liveGame();
+      const board = game.getPlayer(offId)?.boards[0];
+      if (!board) throw new Error('defender board missing');
+      board.expression = '5';
+      game.state.variable_isolation_timers.set(offId, 0);
+
+      await endTurn(turnClient);
+
+      for (const watcher of [turnClient, offClient]) {
+        const over = await watcher.waitFor(gameEvent('game_over'), 3000, 'game_over event');
+        expect(over.details).toMatchObject({ winner: turnId, loser: offId, winReason: 'variable_isolation' });
+        const frame = await watcher.waitFor(ofType('game_over'), 3000, 'game_over frame');
+        expect(frame).toMatchObject({ winnerId: turnId, winReason: 'variable_isolation' });
+      }
+      const snap = snapshotState(await turnClient.waitForNext(isSnapshot, 3000, 'gameOver snapshot'));
+      expect(snap.phase).toBe('gameOver');
+      expect(snap.winReason).toBe('variable_isolation');
+    });
+  });
 });

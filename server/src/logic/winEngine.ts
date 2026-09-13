@@ -62,9 +62,11 @@ export function checkWin(state: WinState, profile: ModeProfile): WinResult {
   if (profile.win.isolation) {
     for (const player of players) {
       // Kill predicate: the main board's distinct-variable count must land in
-      // [isolationMinVars, isolationMaxVars]. v1's 1..1 reproduces the shipped
-      // isIsolatedExpression (exactly-1) check; VI's 0..1 also lets a
-      // constant-only board die — more isolated, not less (doc §3.4 / OQ-4).
+      // [isolationMinVars, isolationMaxVars]. Every shipped profile is 0..1 —
+      // the same ≤1 bound the tickIsolationTimers countdown starts on, so a
+      // constant-only board dies with a single-variable one (W14 §10.3: v1's
+      // old 1..1 band stalled constants forever). A nonzero isolationMinVars
+      // would restore a stricter band for a future mode.
       const vars = distinctVariablesInExpression(player.mainBoardExpr);
       if (
         vars !== undefined

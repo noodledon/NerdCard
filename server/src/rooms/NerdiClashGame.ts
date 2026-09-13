@@ -8,7 +8,7 @@ import { evaluate, forceEval as engineForceEval, type ForceEvalPlayer } from '..
 import { checkWin } from '../logic/winEngine.js';
 import { DEFAULT_MODE, MODE_PROFILES, type GameMode, type ModeProfile } from '../logic/modes.js';
 import { distinctVariablesInExpression } from '../math/expressions.js';
-import type { CommandResult, CommandState } from '../commands/base.js';
+import { isBoardAlive, type CommandResult, type CommandState } from '../commands/base.js';
 
 export interface GameEvent {
   event: string;
@@ -382,6 +382,12 @@ export class NerdiClashGame {
       const player = this.state.players.get(sessionId);
       if (player) player.actionsUsedThisTurn += 1;
     }
+    // Rulebook §10.1: an undefined/infinite eval that destroyed the player's
+    // last live board is an immediate loss — declared before the generic
+    // board-wipe check so the winReason names the true cause.
+    if (result.ok && intent === 'eval_function' && result.boardDestroyed === true) {
+      this.checkUndefinedIntegralLoss(sessionId);
+    }
     if (result.ok) this.runCheckWin();
     return result;
   }
@@ -668,8 +674,11 @@ export class NerdiClashGame {
       // distinct variable — `3*x`, `x^2`, `x+1` now count, not just the
       // single-letter literal. An evaluated board stays active with
       // expression='' and is unparseable, so it cannot establish "reduced"
-      // and pauses/clears the timer instead. checkWin still gates on the
-      // main board via isIsolatedExpression (exactly-1) — unchanged.
+      // and pauses/clears the timer instead. checkWin kills on the MAIN
+      // board landing in [isolationMinVars, isolationMaxVars] — 0..1 in
+      // every shipped profile, the same <=1 semantics the countdown starts
+      // on (W14 §10.3: the old exactly-1 kill band let constant-only
+      // boards stall the win forever).
       const activeBoards = [...p.boards].filter(
         (board): board is NonNullable<typeof board> => board !== undefined && board.isActive,
       );
@@ -783,6 +792,26 @@ export class NerdiClashGame {
   }
 
   /**
+   * Rulebook §10.1 — "Undefined evaluation results in immediate loss of the
+   * game", read with the "integral to the player's survival" qualifier: only
+   * an undefined/infinite eval that destroyed the player's LAST live board
+   * ends the game; while another board survives it is a board-kill like any
+   * other. Called at the sites where an undefined eval result lands
+   * (eval_function, runForceEval) so the winReason names the true cause
+   * instead of surfacing later as a generic board-wipe. Variable Isolation
+   * gates it off — an eval-mishap board is merely dead there, not fatal
+   * (doc §3/OQ-12).
+   */
+  private checkUndefinedIntegralLoss(playerId: string): void {
+    if (!this.profile.win.undefinedIntegralLoss || this.state.winner) return;
+    const player = this.state.players.get(playerId);
+    if (!player) return;
+    if ([...player.boards].some((board) => isBoardAlive(board))) return;
+    const winnerId = [...this.state.players.keys()].find((id) => id !== playerId);
+    if (winnerId) this.declareWinner(winnerId, playerId, 'undefined_integral_loss');
+  }
+
+  /**
    * Single point where state.winner flips unset→set. Both runCheckWin and
    * runForceEval funnel here so the 'game_over' game_event fires exactly
    * once per game; transports translate it into their wire frame.
@@ -805,6 +834,11 @@ export class NerdiClashGame {
    */
   private runForceEval(nominatorId: string, vvcValue: number): unknown {
     const wrappers: ForceEvalPlayer[] = [];
+    // §10.1: players whose LIVE main board just eval'd undefined — the loss
+    // lands during evaluation, ahead of the domination ruling. Only a board
+    // that was alive can be "integral to survival" — re-marking an
+    // already-dead board destroys nothing.
+    const undefinedEvalPlayerIds: string[] = [];
     for (const player of this.state.players.values()) {
       const board = [...player.boards][0];
       const evaluated = evaluate({ expression: board?.expression ?? '' }, 0, vvcValue);
@@ -813,7 +847,10 @@ export class NerdiClashGame {
         // A board already holding '' is a legitimately-evaluated/rebuildable
         // board (the post-eval state) — the showdown must not re-destroy it
         // as a failed evaluation and feed a boardWipe on an empty board.
-        if (board && board.expression.trim() !== '') board.isActive = false;
+        if (board && board.expression.trim() !== '') {
+          if (isBoardAlive(board)) undefinedEvalPlayerIds.push(player.sessionId);
+          board.isActive = false;
+        }
       } else {
         lastForceValue = evaluated.value;
       }
@@ -828,6 +865,12 @@ export class NerdiClashGame {
     for (const wrapper of wrappers) {
       const player = this.state.players.get(wrapper.id);
       if (player) player.hp10 = wrapper.hp10;
+    }
+    // §10.1 first: an undefined eval that took the player's last board is an
+    // immediate loss — declared ahead of the domination ruling so the reason
+    // reflects what actually ended the game.
+    for (const playerId of undefinedEvalPlayerIds) {
+      this.checkUndefinedIntegralLoss(playerId);
     }
     // Domination → declareWinner is a win path the profile may disable
     // (Variable Isolation). The HP redistribution / failed-nomination board

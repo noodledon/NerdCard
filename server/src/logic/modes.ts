@@ -8,8 +8,9 @@
  * construction; `MODE_PROFILES` holds the frozen v1 defaults.
  *
  * Profile values are the recommendations of docs/game-modes.md — v1
- * ('nerdiclash') keeps every shipped semantic so existing behavior is
- * byte-identical under the default mode.
+ * ('nerdiclash') keeps the shipped semantics except the two W14 fidelity
+ * corrections (§10.1 undefined-eval loss armed; §10.3 isolationMinVars 0
+ * so the kill and countdown share the ≤1 predicate).
  */
 
 export const GAME_MODES = ['nerdiclash', 'variable_isolation', 'classic_clash'] as const;
@@ -26,7 +27,8 @@ export function isGameMode(value: unknown): value is GameMode {
 export interface ModeProfile {
   /**
    * Per-win-path switches. checkWin reads hpZero/isolation/boardWipe;
-   * runForceEval's domination → declareWinner reads forceDomination (the
+   * declaration sites read forceDomination (runForceEval's domination) and
+   * undefinedIntegralLoss (§10.1 eval-undefined-on-last-board — the
    * failed-domination penalty path is NOT gated — HP still moves).
    */
   win: {
@@ -34,6 +36,14 @@ export interface ModeProfile {
     isolation: boolean;
     forceDomination: boolean;
     boardWipe: boolean;
+    /**
+     * Rulebook §10.1 — an undefined/infinite eval that destroys the
+     * player's last live board is an immediate loss
+     * ('undefined_integral_loss'). Off in Variable Isolation: isolation is
+     * the only win path there, so an eval-mishap board is merely dead, not
+     * fatal (doc §3/OQ-12).
+     */
+    undefinedIntegralLoss: boolean;
   };
   /**
    * Isolation predicate bound: 1 = v1's reduced-board semantic (a board
@@ -44,10 +54,11 @@ export interface ModeProfile {
   /**
    * Kill-side lower bound on the main board's distinct-variable count —
    * checkWin's isolation branch fires when the count lands in
-   * [isolationMinVars, isolationMaxVars] at timer 0. v1's 1 keeps the
-   * shipped exactly-1 semantic (isIsolatedExpression); VI's 0 also counts
-   * constant boards — a board reduced to a constant is MORE isolated, not
-   * less (doc §3.4 / OQ-4).
+   * [isolationMinVars, isolationMaxVars] at timer 0. Every shipped profile
+   * uses 0 so the kill shares the countdown's ≤1 semantics (W14 §10.3:
+   * v1's old 1..1 band let constant-only boards stall the win forever —
+   * a board reduced to a constant is MORE isolated, not less, doc §3.4 /
+   * OQ-4). A nonzero value would restore a stricter band for a future mode.
    */
   isolationMinVars: number;
   /** Turns an isolated player gets to rebuild (v1: 3, counted in game-turns). */
@@ -77,12 +88,15 @@ export interface ModeProfile {
 }
 
 export const MODE_PROFILES: Record<GameMode, ModeProfile> = {
-  // v1 — all four shipped win paths live, 3-turn isolation countdown,
-  // standard §8.5 showdown, v1 card targeting. Byte-identical behavior.
+  // v1 — all shipped win paths live, 3-turn isolation countdown, standard
+  // §8.5 showdown, v1 card targeting. W14 fidelity: isolationMinVars 0 so
+  // the kill matches the countdown's ≤1 semantics (§10.3), and the §10.1
+  // undefined-eval loss is armed — the two deliberate departures from the
+  // pre-fidelity shipped semantics.
   nerdiclash: {
-    win: { hpZero: true, isolation: true, forceDomination: true, boardWipe: true },
+    win: { hpZero: true, isolation: true, forceDomination: true, boardWipe: true, undefinedIntegralLoss: true },
     isolationMaxVars: 1,
-    isolationMinVars: 1,
+    isolationMinVars: 0,
     isolationRebuildTurns: 3,
     constructionMinVars: 0,
     rebuildDestroyedBoards: false,
@@ -93,9 +107,10 @@ export const MODE_PROFILES: Record<GameMode, ModeProfile> = {
   // Doc §3 — "win only by isolating opponent's variables". HP stays live but
   // non-decisive (OQ-2); Showdown is a dead card (OQ-10); §8.5 soft-wipes
   // instead of destroying the staller's board so they stay isolatable
-  // (§3.3/OQ-11); derivative/limit gain the opp_board arsenal overlay (OQ-3).
+  // (§3.3/OQ-11); derivative/limit gain the opp_board arsenal overlay (OQ-3);
+  // an undefined eval still destroys its board but cannot win (OQ-12).
   variable_isolation: {
-    win: { hpZero: false, isolation: true, forceDomination: false, boardWipe: false },
+    win: { hpZero: false, isolation: true, forceDomination: false, boardWipe: false, undefinedIntegralLoss: false },
     isolationMaxVars: 1,
     isolationMinVars: 0,
     isolationRebuildTurns: 3,
@@ -107,11 +122,13 @@ export const MODE_PROFILES: Record<GameMode, ModeProfile> = {
   },
   // Doc §4 — "pure HP attack mode". Isolation off; force-dom and board-wipe
   // stay on per OQ-9 (disabling them dead-cards Showdown / creates zombie
-  // states); everything else unchanged from v1.
+  // states); the §10.1 undefined-eval loss stays on with them; everything
+  // else unchanged from v1 (isolationMinVars is dormant while the path is
+  // off but shares the corrected ≤1 semantics).
   classic_clash: {
-    win: { hpZero: true, isolation: false, forceDomination: true, boardWipe: true },
+    win: { hpZero: true, isolation: false, forceDomination: true, boardWipe: true, undefinedIntegralLoss: true },
     isolationMaxVars: 1,
-    isolationMinVars: 1,
+    isolationMinVars: 0,
     isolationRebuildTurns: 3,
     constructionMinVars: 0,
     rebuildDestroyedBoards: false,

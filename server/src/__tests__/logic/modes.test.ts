@@ -83,7 +83,12 @@ describe('mode profiles', () => {
   });
 
   it('keeps v1 nerdiclash as the all-paths-on profile', () => {
-    expect(V1.win).toEqual({ hpZero: true, isolation: true, forceDomination: true, boardWipe: true });
+    expect(V1.win).toEqual({ hpZero: true, isolation: true, forceDomination: true, boardWipe: true, undefinedIntegralLoss: true });
+    // W14 §10.3: the kill bound shares the countdown's ≤1 semantics in every
+    // profile; VI alone leaves the §10.1 undefined-eval loss off (OQ-12).
+    expect(V1.isolationMinVars).toBe(0);
+    expect(VI.win.undefinedIntegralLoss).toBe(false);
+    expect(CC.win.undefinedIntegralLoss).toBe(true);
     expect(V1.isolationMaxVars).toBe(1);
     expect(V1.isolationRebuildTurns).toBe(3);
     expect(V1.forceEvalCard).toBe(true);

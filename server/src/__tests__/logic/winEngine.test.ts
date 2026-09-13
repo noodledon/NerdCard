@@ -47,8 +47,18 @@ describe('win engine', () => {
     },
   );
 
-  it.each(['', '5', 'x +', 'x*y'])(
-    'does not declare isolation for a non-single-variable board: %s',
+  it('declares isolation for a constant-only main board (W14 §10.3 — the kill shares the countdown\'s ≤1 bound)', () => {
+    expect(checkWin({
+      players: [
+        { id: 'A', hp10: 100, mainBoardExpr: '5' },
+        { id: 'B', hp10: 100, mainBoardExpr: 'x+y' },
+      ],
+      variableIsolationTimers: new Map([['A', 0]]),
+    }, V1)).toMatchObject({ winner: 'B', loser: 'A', reason: 'isolation' });
+  });
+
+  it.each(['', 'x +', 'x*y'])(
+    'does not declare isolation for a non-reduced board: %s',
     (mainBoardExpr) => {
       const result = checkWin({
         players: [
