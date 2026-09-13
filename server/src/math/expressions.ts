@@ -130,9 +130,14 @@ export function distinctVariablesInExpression(expression: string | undefined): n
 /**
  * An expression is isolated iff it has exactly one distinct variable — any
  * form qualifies (`x`, `3*x`, `x^2`, `x+1`), not just the single-letter
- * literal the previous `/^[a-z]$/` check required. This is the single source
- * of truth for the isolation predicate: `checkWin` and the
- * `tickIsolationTimers` countdown must never drift apart again.
+ * literal the previous `/^[a-z]$/` check required.
+ *
+ * This is the exactly-1 form of the predicate, kept for tests/reference.
+ * The LIVE predicate is the profile-bounded `distinctVariablesInExpression`
+ * count — `checkWin` kills at [isolationMinVars, isolationMaxVars] and the
+ * `tickIsolationTimers` countdown starts at ≤ isolationMaxVars, 0..1 in
+ * every shipped mode, so the two sides share one semantics and cannot
+ * drift apart (docs/game-modes.md §10.3).
  */
 export function isIsolatedExpression(expression: string | undefined): boolean {
   return distinctVariablesInExpression(expression) === 1;

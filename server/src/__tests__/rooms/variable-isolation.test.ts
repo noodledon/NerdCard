@@ -405,7 +405,7 @@ describe('variable isolation rules (wave-13 M4)', () => {
     expect(v1.state.variable_isolation_timers.get('p2')).toBe(3);
   });
 
-  it('counts a constant-only main board toward the VI kill (≤1), v1 stays exactly-1', async () => {
+  it('counts a constant-only main board toward the kill — v1 and VI share the ≤1 predicate (W14 §10.3)', async () => {
     const vi = await gameInPlay('variable_isolation', 'x + y', 'x + y');
     firstBoard(vi, 'p2').expression = '5';
     vi.state.variable_isolation_timers.set('p2', 0);
@@ -415,13 +415,17 @@ describe('variable isolation rules (wave-13 M4)', () => {
     expect(vi.state.winReason).toBe('variable_isolation');
     expect(vi.state.phase).toBe(Phase.gameOver);
 
+    // The §10.3 alignment: v1's kill band used to stop at exactly-1, so this
+    // same forced state stalled forever — the countdown ran (0 ≤ 1) but the
+    // kill demanded ==1. Now both profiles kill on the identical state.
     const v1 = await gameInPlay('nerdiclash', 'x + y', 'x + y');
     firstBoard(v1, 'p2').expression = '5';
     v1.state.variable_isolation_timers.set('p2', 0);
 
     expect(v1.requestEndTurn('p1').ok).toBe(true);
-    expect(v1.state.winner).toBe('');
-    expect(v1.state.phase).toBe(Phase.draw);
+    expect(v1.state.winner).toBe('p1');
+    expect(v1.state.winReason).toBe('variable_isolation');
+    expect(v1.state.phase).toBe(Phase.gameOver);
   });
 
   it('runs the full isolate → 3-turn countdown → kill loop in VI', async () => {
